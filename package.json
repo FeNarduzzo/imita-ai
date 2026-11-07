@@ -1,0 +1,111 @@
+{
+  "name": "imita-ai",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "import-packs": "node scripts/import-packs.mjs",
+    "calibrate": "node scripts/calibrate.ts",
+    "cap:sync": "npm run build && npx cap sync",
+    "desktop": "vite build && electron .",
+    "dist:win": "vite build && electron-builder --win",
+    "dist:mac": "vite build && electron-builder --mac",
+    "android:apk": "vite build && cap sync android && cd android && gradlew assembleRelease",
+    "dist:mac-zip": "node scripts/pack-mac.mjs",
+    "export-packs": "node scripts/export-packs.mjs",
+    "build:web": "vite build"
+  },
+  "devDependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/assets": "^4.0.0",
+    "@capacitor/cli": "8.6.0",
+    "@capacitor/core": "8.6.0",
+    "@capacitor/ios": "8.6.0",
+    "@fontsource/fredoka": "5.3.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.2.1",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
+    "fflate": "^0.8.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "5.9.3",
+    "vite": "8.3.6",
+    "yauzl": "^3.4.0",
+    "yazl": "^3.3.1"
+  },
+  "description": "Imita Aí! — jogo de festa de imitação para jogar em um só aparelho",
+  "author": "Imita Aí",
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "com.imitaai.party",
+    "productName": "Imita Aí",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "ImitaAi-Instalador-${version}.exe",
+      "shortcutName": "Imita Aí!"
+    },
+    "portable": {
+      "artifactName": "ImitaAi-Portatil-${version}.exe"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.games",
+      "icon": "build/icon.png",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "O Imita Aí! usa o microfone para gravar e dar nota às suas imitações."
+      },
+      "artifactName": "ImitaAi-${version}-mac-${arch}.${ext}"
+    }
+  }
+}

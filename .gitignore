@@ -1,0 +1,10 @@
+node_modules/
+dist/
+release/
+*.log
+
+# Sons de terceiros (Oficina): ficam só neste computador. Importe no app pelo zip.
+public/packs/
+
+# Chave de assinatura do APK
+android/keystore/

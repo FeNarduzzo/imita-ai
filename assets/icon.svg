@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="30%" cy="20%" r="95%">
+      <stop offset="0" stop-color="#4a1f8f"/>
+      <stop offset="0.55" stop-color="#231052"/>
+      <stop offset="1" stop-color="#150a2e"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="80%" cy="90%" r="60%">
+      <stop offset="0" stop-color="#3de0f5" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#3de0f5" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+  <g transform="translate(512 500) scale(11) translate(-32 -30)">
+    <path d="M10 14c0-5 4-9 9-9h26c5 0 9 4 9 9v20c0 5-4 9-9 9H30l-11 11v-11c-5 0-9-4-9-9z" fill="#b8246a" transform="translate(0 2.2)"/>
+    <path d="M10 14c0-5 4-9 9-9h26c5 0 9 4 9 9v20c0 5-4 9-9 9H30l-11 11v-11c-5 0-9-4-9-9z" fill="#ff4f9a"/>
+    <g fill="#ffd23f">
+      <rect x="18" y="20" width="5" height="10" rx="2.5"/>
+      <rect x="26" y="14" width="5" height="22" rx="2.5"/>
+      <rect x="34" y="17" width="5" height="16" rx="2.5"/>
+      <rect x="42" y="21" width="5" height="8" rx="2.5"/>
+    </g>
+  </g>
+</svg>
