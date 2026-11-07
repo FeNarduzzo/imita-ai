@@ -252,6 +252,8 @@ export function Record({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
           if (g.settings.along && target) along.current = play(target.buffer, 0.9);
           setStage('rec');
           const t0 = performance.now();
+          // O fim da gravação não depende da animação da tela (que pode pausar).
+          timers.push(setTimeout(() => finish(), limit * 1000 + 50));
           const tick = () => {
             const e = (performance.now() - t0) / 1000;
             const cols = live.current.length;
@@ -378,7 +380,9 @@ export function Create({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
         player.start(buf);
       };
       stopRef.current = finish;
+      const guard = setTimeout(() => finish(), LIMIT * 1000 + 50);
       const tick = () => {
+        if (done) { clearTimeout(guard); return; }
         const e = (performance.now() - t0) / 1000;
         setElapsed(e);
         if (e >= LIMIT) finish();

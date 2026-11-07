@@ -1,5 +1,14 @@
 # Novidades
 
+## 1.3
+
+- **Som de jogo, não de chamada (iPhone):** a gravação agora usa um motor de áudio separado, que
+  é fechado ao terminar; o motor de reprodução é recriado depois de cada gravação e liberado como
+  mídia a cada toque na tela. Assim o iPhone sai do modo "chamada" e o volume volta a ser o de mídia.
+- **Mais volume em tudo:** compressor na saída de áudio, que aumenta o volume percebido sem distorcer.
+- **App iOS nativo:** sessão de áudio de reprodução (mídia).
+- A gravação termina pelo tempo certo mesmo se a animação da tela atrasar.
+
 ## 1.2
 
 - **Volume das gravações corrigido.** As imitações agora tocam no mesmo volume dos sons dos pacotes

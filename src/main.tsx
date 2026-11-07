@@ -6,6 +6,14 @@ import '@fontsource/fredoka/600.css';
 import '@fontsource/fredoka/700.css';
 import './styles.css';
 import App from './App';
+import { unlockAudio } from './audio/engine';
+
+// iOS só libera o áudio dentro de um toque: a cada toque garantimos o som como mídia de jogo
+// (e não como chamada), inclusive depois de cada gravação.
+const unlock = () => { unlockAudio(); };
+for (const ev of ['touchend', 'pointerdown', 'click', 'keydown']) {
+  window.addEventListener(ev, unlock, { capture: true, passive: true });
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

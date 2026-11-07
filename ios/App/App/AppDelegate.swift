@@ -8,8 +8,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Toca pelo alto-falante mesmo com o microfone ligado (gravar e ouvir no mesmo aparelho).
-        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+        // Som de jogo (mídia), pelo alto-falante e mesmo com a chave de silencioso.
+        // O WebKit troca para gravação sozinho só enquanto o microfone está aberto.
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
         try? AVAudioSession.sharedInstance().setActive(true)
         UIApplication.shared.isIdleTimerDisabled = true
         return true
