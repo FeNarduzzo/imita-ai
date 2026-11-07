@@ -4,8 +4,24 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let sfxVolume = 0.7;
 
+type SessionType = 'playback' | 'play-and-record';
+
+/**
+ * iPhone (Safari 16.4+): sem isso, depois de usar o microfone o áudio fica no
+ * modo "chamada" (baixo, e mudo com a chave de silencioso).
+ */
+let micsOpen = 0;
+
+export function setAudioSession(type: SessionType) {
+  if (type === 'playback' && micsOpen > 0) return;
+  const s = (navigator as unknown as { audioSession?: { type: string } }).audioSession;
+  if (!s) return;
+  try { if (s.type !== type) s.type = type; } catch { /* não suportado */ }
+}
+
 export function audio(): AudioContext {
   if (!ctx) {
+    setAudioSession('playback');
     const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     ctx = new AC({ latencyHint: 'interactive' });
     master = ctx.createGain();
@@ -15,6 +31,7 @@ export function audio(): AudioContext {
 }
 
 export async function unlockAudio() {
+  setAudioSession('playback');
   const c = audio();
   if (c.state !== 'running') await c.resume().catch(() => {});
 }
@@ -54,6 +71,7 @@ export interface Playing { stop(): void; ended: Promise<void>; startedAt: number
 
 export function play(buf: AudioBuffer, gain = 1): Playing {
   const c = audio();
+  setAudioSession('playback');
   if (c.state !== 'running') c.resume().catch(() => {});
   const src = c.createBufferSource();
   src.buffer = buf;
@@ -120,15 +138,29 @@ export class Mic {
   private sink: GainNode | null = null;
   private chunks: Float32Array[] = [];
   private recording = false;
+  private counted = false;
   level = 0;
   gain = 1;
   sampleRate = 48000;
+  /** Nível de cada bloco gravado (2048 amostras), para desenhar a voz no tempo certo. */
+  chunkLevels: number[] = [];
+  readonly chunkSize = 2048;
 
   async open(echoCancellation = false) {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Este aparelho não dá acesso ao microfone.');
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation, noiseSuppression: false, autoGainControl: true, channelCount: 1 },
-    });
+    micsOpen++;
+    this.counted = true;
+    setAudioSession('play-and-record');
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        // Sem processamento de chamada: assim o celular não entra no modo "ligação" (volume baixo).
+        // O volume da gravação é ajustado depois, em louden().
+        audio: { echoCancellation, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+      });
+    } catch (e) {
+      this.close();
+      throw e;
+    }
     const c = audio();
     await unlockAudio();
     if (c.state !== 'running') await c.resume().catch(() => {});
@@ -141,6 +173,7 @@ export class Mic {
       for (let i = 0; i < d.length; i++) s += d[i] * d[i];
       this.level = Math.sqrt(s / d.length) * this.gain;
       if (this.recording) {
+        this.chunkLevels.push(this.level);
         const copy = new Float32Array(d.length);
         for (let i = 0; i < d.length; i++) copy[i] = d[i] * this.gain;
         this.chunks.push(copy);
@@ -154,6 +187,7 @@ export class Mic {
 
   start() {
     this.chunks = [];
+    this.chunkLevels = [];
     this.recording = true;
   }
 
@@ -171,6 +205,9 @@ export class Mic {
     this.recording = false;
     try { this.src?.disconnect(); this.proc?.disconnect(); this.sink?.disconnect(); } catch { /* ok */ }
     this.stream?.getTracks().forEach((t) => t.stop());
+    if (this.counted) { micsOpen = Math.max(0, micsOpen - 1); this.counted = false; }
+    setAudioSession('playback');
+    if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
     this.stream = this.src = this.proc = this.sink = null;
     this.level = 0;
   }

@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Mic, play, sfx, toBuffer, vibrate, type Playing } from '../audio/engine';
 import type { LoadedSound, SoundInfo } from '../audio/library';
-import { peakLevel, trimSilence } from '../audio/util';
+import { activeLoudnessDb, louden, peakLevel, trimSilence } from '../audio/util';
 import { Avatar, Ring, usePlayer } from '../components/ui';
+import { envelopeOf, Waveform } from '../components/Waveform';
+
+/** Nível do microfone (RMS) para 0..1 numa escala que fica boa na tela. */
+const meter = (l: number) => Math.min(1, Math.sqrt(Math.max(0, l)) * 2.2);
 import { shuffle, TEAMS, type GameState, type Player } from '../game/model';
 import type { GameApi } from '../game/useGame';
 
@@ -130,18 +134,20 @@ export function Listen({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
   }, []);
 
   const canRecord = count > 0 && !player.playing;
+  const env = useMemo(() => envelopeOf(snd?.buffer), [snd]);
   return (
     <div className="screen">
       <TopBar g={g} onQuit={onQuit} />
       <div className="row" style={{ justifyContent: 'center' }}>
         <Avatar p={p} size="s" /><b>{p.name}</b>
       </div>
-      <div className="grow stack" style={{ justifyContent: 'center', alignItems: 'center', gap: 26 }}>
+      <div className="grow stack" style={{ justifyContent: 'center', alignItems: 'center', gap: 18 }}>
         <div className="sound-card">
-          <SoundArt s={r.sound} mystery={r.mystery} />
+          <SoundArt s={r.sound} mystery={r.mystery} size={104} />
           <div className="sname">{r.mystery ? 'Som misterioso' : r.sound?.name}</div>
           {r.creatorId && !r.sound?.name.startsWith('Desafio de') && <span className="badge pink">🎙️ criado por {g.players.find((x) => x.id === r.creatorId)?.name}</span>}
         </div>
+        {env && <Waveform env={env} progress={player.playing ? player.progress : count > 0 ? 1 : 0} cursor={player.playing} label="Forma de onda do som original" />}
         {err ? <div className="error">{err}</div> : (
           <button className="play-big" disabled={!snd || player.playing || count >= max} onClick={() => snd && listen(snd)} aria-label="Ouvir o som">
             <Ring value={player.playing ? player.progress : 0} size={196} stroke={8} color="var(--cyan)" track="rgba(255,255,255,0.06)" />
@@ -170,7 +176,7 @@ function useWave(mic: React.RefObject<Mic | null>, active: boolean) {
     const hist: number[] = [];
     let raf = 0;
     const draw = () => {
-      const l = Math.min(1, (mic.current?.level || 0) * 6);
+      const l = meter(mic.current?.level || 0);
       hist.push(l);
       if (hist.length > 64) hist.shift();
       setLvl(l);
@@ -213,7 +219,9 @@ export function Record({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
   const [maxSec, setMaxSec] = useState(4);
   const along = useRef<Playing | null>(null);
   const stopRef = useRef<() => void>(() => {});
-  const { canvas, lvl } = useWave(mic, stage !== 'open' && stage !== 'done');
+  const [guide, setGuide] = useState<{ env: Float32Array | null; span: number }>({ env: null, span: 1 });
+  const live = useRef(new Float32Array(120));
+  const { lvl } = useWave(mic, stage !== 'open' && stage !== 'done');
 
   useEffect(() => {
     let alive = true;
@@ -225,6 +233,7 @@ export function Record({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
         const dur = target ? target.buffer.duration : 3;
         const limit = Math.min(10, Math.max(2.5, dur + 1.3));
         setMaxSec(limit);
+        setGuide({ env: envelopeOf(target?.buffer, 96), span: Math.min(1, dur / limit) });
         const m = new Mic();
         m.gain = g.settings.micGain;
         await m.open(g.settings.along);
@@ -245,6 +254,12 @@ export function Record({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
           const t0 = performance.now();
           const tick = () => {
             const e = (performance.now() - t0) / 1000;
+            const cols = live.current.length;
+            const per = m.chunkSize / m.sampleRate;
+            m.chunkLevels.forEach((lv, k) => {
+              const col = Math.min(cols - 1, Math.floor(((k * per) / limit) * cols));
+              live.current[col] = Math.max(live.current[col], meter(lv));
+            });
             setElapsed(e);
             if (e >= limit) finish();
             else raf = requestAnimationFrame(tick);
@@ -298,8 +313,10 @@ export function Record({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
             </div>
           </>
         )}
-        <canvas ref={canvas} className="wave" />
-        <div className="progress"><i style={{ width: `${Math.min(100, (elapsed / maxSec) * 100)}%` }} /></div>
+        <Waveform env={guide.env} span={guide.span} live={stage === 'rec' || stage === 'done' ? live.current : null} progress={elapsed / maxSec} cursor={stage === 'rec'} height={110} label="Som original e sua voz sendo gravada" />
+        <div className="row small muted" style={{ gap: 14 }}>
+          <span><i className="key-dot guide" /> original</span><span><i className="key-dot voice" /> sua voz</span>
+        </div>
       </div>
       <button className="btn big" disabled={stage !== 'rec' || elapsed < 0.6} onClick={() => stopRef.current()}>Terminei ✋</button>
     </div>
@@ -322,6 +339,7 @@ export function Create({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
   const stopRef = useRef<() => void>(() => {});
   const { canvas, lvl } = useWave(mic, stage === 'rec');
   const LIMIT = 6;
+  const clipEnv = useMemo(() => envelopeOf(clip?.buf), [clip]);
 
   useEffect(() => () => mic.current?.close(), []);
 
@@ -347,12 +365,13 @@ export function Create({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
         const sr = m.sampleRate;
         m.close();
         mic.current = null;
-        const samples = trimSilence(raw, sr);
-        if (peakLevel(samples) < 0.02 || samples.length < sr * 0.3) {
+        const trimmed = trimSilence(raw, sr);
+        if (peakLevel(trimmed) < 0.005 || activeLoudnessDb(trimmed, sr) < -58 || trimmed.length < sr * 0.3) {
           setStage('intro');
           setMsg('Não deu pra ouvir nada. Chegue mais perto do microfone e tente de novo.');
           return;
         }
+        const samples = louden(trimmed, sr);
         const buf = toBuffer(samples, sr);
         setClip({ samples, sr, buf });
         setStage('review');
@@ -395,6 +414,7 @@ export function Create({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
         {stage === 'review' && clip && (
           <>
             <h1 className="title-l">Ficou bom?</h1>
+            <Waveform env={clipEnv} progress={player.playing ? player.progress : 0} cursor={player.playing} label="Forma de onda do desafio gravado" />
             <button className="play-big" onClick={() => (player.playing ? player.stop() : player.start(clip.buf))} aria-label="Ouvir o desafio">
               <Ring value={player.playing ? player.progress : 0} size={196} stroke={8} color="var(--cyan)" />
               {player.playing ? '■' : '▶'}

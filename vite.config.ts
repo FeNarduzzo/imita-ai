@@ -32,8 +32,11 @@ function pwa(): Plugin {
   };
 }
 
+const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+
 export default defineConfig({
   base: './',
+  define: { __APP_VERSION__: JSON.stringify(pkg.version.replace(/\.0$/, '')) },
   plugins: [react(), pwa()],
   build: { outDir: 'dist', target: 'es2020' },
 });

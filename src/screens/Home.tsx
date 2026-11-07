@@ -205,7 +205,7 @@ export function Home({ api }: { api: GameApi }) {
           {api.busy ? 'Preparando…' : 'COMEÇAR'}
         </button>
         <div className="small faint" style={{ textAlign: 'center' }}>
-          {s.rounds} rodadas · {players.length} {players.length === 1 ? 'jogador' : 'jogadores'} · {selected.length} {selected.length === 1 ? 'pacote' : 'pacotes'}
+          {s.rounds} rodadas · {players.length} {players.length === 1 ? 'jogador' : 'jogadores'} · {selected.length} {selected.length === 1 ? 'pacote' : 'pacotes'} · v{__APP_VERSION__}
         </div>
       </div>
 

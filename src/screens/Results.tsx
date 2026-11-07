@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { sfx, toBuffer, vibrate } from '../audio/engine';
 import type { LoadedSound } from '../audio/library';
 import { applyEffect } from '../audio/synth';
+import { louden } from '../audio/util';
 import { Avatar, Confetti, PitchChart, Ring, useCountUp, usePlayer } from '../components/ui';
+import { envelopeOf, Waveform } from '../components/Waveform';
 import { EFFECT_NAMES, ratingLabel, SLOTS, TEAMS, type GameState, type Player, type Slot } from '../game/model';
 import type { GameApi } from '../game/useGame';
 import { TopBar } from './Turn';
@@ -25,7 +27,7 @@ export function Reveal({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
   const buffer = useMemo(() => {
     if (!take) return null;
     const x = take.sabotage ? applyEffect(take.sabotage.effect, take.samples, take.sr, r.index * 31 + r.revealIdx) : take.samples;
-    return toBuffer(x, take.sr);
+    return toBuffer(louden(x, take.sr), take.sr);
   }, [take, r.index, r.revealIdx]);
 
   useEffect(() => {
@@ -56,6 +58,8 @@ export function Reveal({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, buffer]);
 
+  const targetEnv = useMemo(() => envelopeOf(target?.buffer), [target]);
+  const takeEnv = useMemo(() => envelopeOf(buffer), [buffer]);
   const score = take?.score;
   const shown = useCountUp(take?.points ?? 0, 1200, showScore);
   useEffect(() => {
@@ -75,6 +79,7 @@ export function Reveal({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
             {r.sound?.image ? <img className="art" src={r.sound.image} alt="" /> : <div className="art">{r.sound?.emoji || '🔊'}</div>}
             <div className="sname">{r.sound?.name}</div>
           </div>
+          {targetEnv && <Waveform env={targetEnv} progress={player.playing ? player.progress : 1} cursor={player.playing} label="Forma de onda do original" />}
           <button className="play-big" disabled={!target} onClick={() => target && (player.playing ? player.stop() : player.start(target.buffer))} aria-label="Ouvir o original">
             <Ring value={player.playing ? player.progress : 0} size={196} stroke={8} color="var(--cyan)" />
             {player.playing ? '🔊' : '▶'}
@@ -99,7 +104,7 @@ export function Reveal({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
       <div key={`b-${pid}`} className="grow stack" style={{ alignItems: 'center', justifyContent: 'center', gap: 14, textAlign: 'center', animation: 'enter .35s both' }}>
         {!showScore ? (
           <>
-            <div className="mic-orb" style={{ ['--lvl' as string]: player.playing ? 0.4 + 0.3 * Math.sin(player.progress * 40) : 0 }}>{player.playing ? '🔊' : '⏳'}</div>
+            {takeEnv && <Waveform env={takeEnv} progress={player.playing ? player.progress : 1} cursor={player.playing} height={120} label={`Imitação de ${p.name}`} />}
             <b>{player.playing ? 'Tocando a imitação…' : 'Calculando…'}</b>
             <button className="btn ghost sm" onClick={() => { player.stop(); setShowScore(true); }}>Pular</button>
           </>
