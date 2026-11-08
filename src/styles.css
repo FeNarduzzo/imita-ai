@@ -691,3 +691,20 @@ button.card.face:active { transform: translateY(-2px) scale(0.97); }
 .pk-raise { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 16px; background: rgba(255, 255, 255, 0.06); animation: pop 0.25s both; }
 .pk-raise .btn.on { background: var(--yellow); color: #2a1458; }
 .pk-slider { width: 100%; accent-color: var(--pink); }
+
+/* ---------------------------------------------------------------- menu de admin */
+.admin-screen { gap: 12px; }
+.admin-box { padding: 12px 14px; }
+.admin-box > summary { cursor: pointer; font-weight: 700; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.admin-box > summary::-webkit-details-marker { display: none; }
+.admin-box > summary::after { content: '▾'; color: var(--muted); transition: transform 0.2s; }
+.admin-box[open] > summary::after { transform: rotate(180deg); }
+.admin-row { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; }
+.admin-row:active { transform: scale(0.99); }
+.admin-row:focus-visible { outline: 2px solid var(--cyan); }
+.admin-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.admin-item { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 12px; background: rgba(0, 0, 0, 0.22); }
+.admin-ok { background: rgba(158, 240, 26, 0.12); border: 1px solid rgba(158, 240, 26, 0.45); color: #e3ffc0; padding: 10px 12px; border-radius: 12px; font-size: 14px; }
+.admin-made { padding: 10px 12px; border-radius: 12px; background: rgba(255, 210, 63, 0.12); border: 1px solid rgba(255, 210, 63, 0.5); }
+.mono { font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace; letter-spacing: 0.04em; user-select: text; -webkit-user-select: text; }
+select.auth-input { appearance: auto; }

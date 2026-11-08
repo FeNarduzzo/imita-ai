@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { sfx } from '../audio/engine';
 import { Character } from '../components/Character';
 import { Logo, Seg } from '../components/ui';
-import { getWallet } from '../game/character';
+import { getWallet, onWalletChange } from '../game/character';
 import type { Player } from '../game/model';
 import { CoinPill, RedeemSheet } from './Wardrobe';
 
@@ -42,6 +42,7 @@ export function Salao({ self, players, onSwitchSelf, account, onDress, onOpen }:
     try { return (localStorage.getItem('imita.tab') as Tab) || 'offline'; } catch { return 'offline'; }
   });
   const [coins, setCoins] = useState(() => getWallet(self.id).coins);
+  useEffect(() => onWalletChange(() => setCoins(getWallet(self.id).coins)), [self.id]);
   const [codeOpen, setCodeOpen] = useState(false);
   const pick = (t: Tab) => { setTab(t); try { localStorage.setItem('imita.tab', t); } catch { /* ok */ } };
 
