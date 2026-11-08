@@ -1,6 +1,7 @@
 import type { Difficulty, ScoreResult } from '../audio/analysis';
 import type { EffectId } from '../audio/synth';
 import type { SoundInfo } from '../audio/library';
+import { randomLook, type Look } from './character';
 
 export type Mode = 'classic' | 'teams';
 export type Source = 'packs' | 'mixed' | 'players';
@@ -20,7 +21,7 @@ export interface Settings {
   micGain: number;
 }
 
-export interface Player { id: string; name: string; emoji: string; color: string; team: 0 | 1 }
+export interface Player { id: string; name: string; emoji: string; color: string; team: 0 | 1; look?: Look }
 
 export type SlotId = EffectId | 'troca' | 'bonus' | 'mult';
 export interface Slot { id: SlotId; title: string; emoji: string; desc: string; descSolo: string; kind: 'sabotage' | 'swap' | 'bonus' | 'mult'; color: string }
@@ -70,6 +71,8 @@ export interface GameState {
   best: { playerId: string; points: number; soundName: string } | null;
   sabotaged: number;
   takes: number;
+  /** Moedas ganhas por jogador no fim da partida. */
+  rewards?: Record<string, number>;
 }
 
 export type Phase = 'home' | 'draw' | 'create' | 'handoff' | 'listen' | 'record' | 'allDone' | 'reveal' | 'roundEnd' | 'wheel' | 'final';
@@ -98,6 +101,7 @@ export function newPlayer(existing: Player[], name?: string): Player {
     emoji,
     color,
     team: t0 <= t1 ? 0 : 1,
+    look: randomLook(),
   };
 }
 

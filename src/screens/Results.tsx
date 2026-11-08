@@ -340,7 +340,7 @@ export function Wheel({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit: 
 
 // ---------------------------------------------------------------- final
 
-export function Final({ api, g, online }: { api: GameApi; g: GameState; online?: { host: boolean } }) {
+export function Final({ api, g, online, myReward }: { api: GameApi; g: GameState; online?: { host: boolean }; myReward?: number | null }) {
   const sorted = [...g.players].sort((a, b) => (g.totals[b.id] || 0) - (g.totals[a.id] || 0));
   const podium = [sorted[1], sorted[0], sorted[2]];
   const heights = [96, 140, 70];
@@ -362,7 +362,7 @@ export function Final({ api, g, online }: { api: GameApi; g: GameState; online?:
           <div className="col" key={p.id}>
             <Avatar p={p} size={i === 1 ? 'l' : ''} />
             <div className="nm">{p.name}</div>
-            <div className="pt">{g.totals[p.id] || 0} pts</div>
+            <div className="pt">{g.totals[p.id] || 0} pts{g.rewards?.[p.id] ? <span className="coin-gain"> · 🪙 +{g.rewards[p.id]}</span> : null}</div>
             <div className="step" style={{ height: heights[i], background: colors[i], animationDelay: `${[0.3, 0.6, 0][i]}s` }}>{[2, 1, 3][i]}</div>
           </div>
         ) : <div className="col" key={i} />)}
@@ -376,6 +376,7 @@ export function Final({ api, g, online }: { api: GameApi; g: GameState; online?:
           ))}
         </div>
       )}
+      {myReward ? <div className="reward-banner">🪙 Você ganhou <b>{myReward}</b> moedas! Gaste na loja de roupas.</div> : null}
       <div className="stats">
         {g.best && (
           <div className="stat"><span>Melhor imitação</span><b>{byId(g, g.best.playerId).name} · {g.best.points}</b><span>{g.best.soundName}</span></div>

@@ -15,11 +15,16 @@ for (const ev of ['touchend', 'pointerdown', 'click', 'keydown']) {
   window.addEventListener(ev, unlock, { capture: true, passive: true });
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+const root = createRoot(document.getElementById('root')!);
+if (import.meta.env.DEV && location.search.includes('galeria')) {
+  import('./dev/Gallery').then(({ Gallery }) => root.render(<Gallery />));
+} else {
+  root.render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  );
+}
 
 // App instalável (iPhone/Android pelo navegador): funciona offline depois da 1ª visita.
 const isNativeShell = 'Capacitor' in window || location.protocol === 'app:' || location.protocol === 'file:';

@@ -1,3 +1,4 @@
+import { randomLook } from './character';
 import { newPlayer, type Player, type Settings } from './model';
 import { BUILTIN_ID } from '../audio/library';
 
@@ -38,7 +39,15 @@ export const saveSettings = (s: Settings) => write(K.settings, s);
 
 export function loadPlayers(): Player[] {
   const p = read<Player[]>(K.players);
-  if (p && Array.isArray(p) && p.length) return p;
+  if (p && Array.isArray(p) && p.length) {
+    // Jogadores antigos (só com emoji) ganham um personagem.
+    if (p.some((x) => !x.look)) {
+      const fixed = p.map((x) => (x.look ? x : { ...x, look: randomLook() }));
+      write(K.players, fixed);
+      return fixed;
+    }
+    return p;
+  }
   const a = newPlayer([], 'Jogador 1');
   return [a, newPlayer([a], 'Jogador 2')];
 }
@@ -49,3 +58,12 @@ export function pushRecent(ids: string[]) {
   const r = [...ids, ...loadRecent().filter((x) => !ids.includes(x))].slice(0, 120);
   write(K.recent, r);
 }
+
+// ---------------------------------------------------------------- perfil deste aparelho
+const SELF_KEY = 'imita.self.v1';
+/** Qual jogador é o "dono" deste aparelho (usado no online, nas cartas e na loja). */
+export function loadSelfId(players: Player[]): string {
+  const id = read<string>(SELF_KEY);
+  return id && players.some((p) => p.id === id) ? id : players[0]?.id;
+}
+export const saveSelfId = (id: string) => write(SELF_KEY, id);

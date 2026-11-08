@@ -9,6 +9,7 @@ import {
   addTake, ANCHORS, applyWheelState, buildRound, EMPTY_SCORE, endRoundState, makePlan, newGame, patchTake,
   pickAnchors, revealState, validateStart,
 } from '../game/engine';
+import { addCoins, rewardFor, type Look } from '../game/character';
 import { EFFECT_NAMES, newPlayer, SLOTS, shuffle, type GameState, type Player, type SlotId } from '../game/model';
 import { loadRecent, pushRecent } from '../game/storage';
 import type { GameApi } from '../game/useGame';
@@ -19,7 +20,7 @@ export type OnlinePhase = 'lobby' | 'draw' | 'create' | 'play' | 'reveal' | 'rou
 export type RecMode = 'together' | 'turns';
 export interface Seat extends Player { clientId: string; online: boolean }
 export interface SoundMeta { name: string; emoji?: string; image?: string | null }
-export interface Me { name: string; emoji: string }
+export interface Me { name: string; emoji: string; look?: Look; profileId?: string }
 
 /** Estado que o anfitrião replica para todos. */
 export interface Shared {
@@ -102,6 +103,7 @@ export function useOnline(local: GameApi) {
   const [targetMeta, setTargetMeta] = useState<SoundMeta | null>(null);
 
   const targetRef = useRef<Promise<LoadedSound> | null>(null);
+  const meRef = useRef<Me | null>(null);
   const hostNet = useRef<HostNet | null>(null);
   const guestNet = useRef<GuestNet | null>(null);
   const sharedRef = useRef<Shared | null>(null);
@@ -290,7 +292,7 @@ export function useOnline(local: GameApi) {
     if (!s) return;
     setError(null);
     const pool = L.packs.filter((p) => L.settings.packIds.includes(p.id)).flatMap((p) => p.sounds);
-    const players: Player[] = s.seats.map(({ id, name, emoji, color, team }) => ({ id, name, emoji, color, team }));
+    const players: Player[] = s.seats.map(({ id, name, emoji, color, team, look }) => ({ id, name, emoji, color, team, look }));
     const invalid = validateStart(L.settings, players, pool.length, true);
     if (invalid) return setError(invalid);
     await unlockAudio();
@@ -316,7 +318,7 @@ export function useOnline(local: GameApi) {
         if (s.seats.length >= MAX_SEATS) { net.send(connId, { t: 'reject', reason: 'A sala está cheia.' }); return; }
         const base = newPlayer(s.seats, String(msg.name || 'Jogador').slice(0, 14));
         const emoji = s.seats.some((x) => x.emoji === msg.emoji) ? base.emoji : String(msg.emoji || base.emoji);
-        seat = { ...base, emoji, clientId: cid, online: true };
+        seat = { ...base, emoji, look: (msg.look as Look | undefined) ?? base.look, clientId: cid, online: true };
         publish({ seats: [...s.seats, seat] });
       } else {
         publish({ seats: s.seats.map((x) => (x.id === seat!.id ? { ...x, online: true } : x)) });
@@ -367,6 +369,7 @@ export function useOnline(local: GameApi) {
   };
 
   const createRoom = useCallback(async (me: Me) => {
+    meRef.current = me;
     setError(null);
     setEnded(null);
     saveMe(me);
@@ -375,7 +378,8 @@ export function useOnline(local: GameApi) {
     try {
       const code = await net.open();
       hostNet.current = net;
-      const hostSeat: Seat = { ...newPlayer([], me.name), emoji: me.emoji, clientId: clientId(), online: true };
+      const base = newPlayer([], me.name);
+      const hostSeat: Seat = { ...base, emoji: me.emoji, look: me.look ?? base.look, clientId: clientId(), online: true };
       const s: Shared = {
         code, hostId: hostSeat.id, phase: 'lobby', recMode: 'together', seats: [hostSeat], game: null,
         active: [], submitted: [], decoys: [], soundSeq: 0, note: null, waitingSince: 0,
@@ -404,6 +408,7 @@ export function useOnline(local: GameApi) {
   // ---------------------------------------------------------------- convidado
 
   const joinRoom = useCallback(async (code: string, me: Me) => {
+    meRef.current = me;
     setError(null);
     setEnded(null);
     saveMe(me);
@@ -445,7 +450,7 @@ export function useOnline(local: GameApi) {
     try {
       await net.join(c);
       guestNet.current = net;
-      net.send({ t: 'hello', clientId: clientId(), name: me.name, emoji: me.emoji });
+      net.send({ t: 'hello', clientId: clientId(), name: me.name, emoji: me.emoji, look: (me.look ?? null) as unknown as Record<string, unknown> });
     } catch (e) {
       setConnecting(null);
       setError((e as Error).message);
@@ -518,6 +523,20 @@ export function useOnline(local: GameApi) {
 
   useEffect(() => () => { hostNet.current?.close(); guestNet.current?.close(); }, []);
 
+  const credited = useRef<string | null>(null);
+  const [myReward, setMyReward] = useState<number | null>(null);
+  useEffect(() => {
+    const g = shared?.game;
+    if (shared?.phase !== 'final' || !g || !myId) return;
+    const key = `${shared.code}-${g.history.length}-${shared.soundSeq}`;
+    if (credited.current === key) return;
+    credited.current = key;
+    const ranking = [...g.players].sort((a, b) => (g.totals[b.id] || 0) - (g.totals[a.id] || 0));
+    const reward = rewardFor(g.totals[myId] || 0, ranking.findIndex((p) => p.id === myId));
+    if (meRef.current?.profileId) addCoins(meRef.current.profileId, reward);
+    setMyReward(reward);
+  }, [shared, myId]);
+
   // Volta para "ouvir" a cada nova vez de gravar
   const activeKey = shared ? `${shared.phase}-${roundIdx}-${shared.active.join(',')}` : '';
   useEffect(() => { setStage('listen'); }, [activeKey]);
@@ -532,7 +551,7 @@ export function useOnline(local: GameApi) {
     const sound = base.round.sound ? { ...base.round.sound, image: targetMeta?.image ?? base.round.sound.image, emoji: base.round.sound.emoji || targetMeta?.emoji } : null;
     view = {
       ...base,
-      players: shared.seats.map(({ id, name, emoji, color, team }) => ({ id, name, emoji, color, team })),
+      players: shared.seats.map(({ id, name, emoji, color, team, look }) => ({ id, name, emoji, color, team, look })),
       settings: { ...base.settings, micGain: local.settings.micGain, along: false },
       round: { ...base.round, sound, takes },
     };
@@ -541,7 +560,7 @@ export function useOnline(local: GameApi) {
   const takesReady = !shared?.game || isHost || Object.keys(shared.game.round.takes).every((k) => takeAudio[k]);
 
   return {
-    role, isHost, shared, myId, view, stage, setStage, connecting, error, setError, ended, targetMeta, takesReady,
+    role, isHost, shared, myId, view, stage, setStage, connecting, error, setError, ended, targetMeta, takesReady, myReward,
     getTarget: () => targetRef.current,
     createRoom, joinRoom, leave, hostStart, setRecMode, toggleTeam, skipMissing,
     nextReveal, continueAfterRound, submitTake, submitChallenge, sendWheel,

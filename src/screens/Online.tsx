@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { sfx, unlockAudio } from '../audio/engine';
 import { Avatar, Logo, Seg } from '../components/ui';
-import { EMOJIS, TEAMS, type GameState } from '../game/model';
+import { TEAMS, type GameState, type Player } from '../game/model';
 import type { GameApi } from '../game/useGame';
-import { loadMe, type Me, type OnlineApi } from '../online/useOnline';
+import { type Me, type OnlineApi } from '../online/useOnline';
 import { Final, Reveal, RoundEnd, Wheel } from './Results';
 import { Create, Draw, Listen, Record, TopBar } from './Turn';
 
@@ -17,16 +17,10 @@ export function roomLink(code: string) {
 
 // ---------------------------------------------------------------- criar / entrar
 
-export function OnlineHub({ api, online, initialCode, onBack }: { api: GameApi; online: OnlineApi; initialCode?: string; onBack: () => void }) {
-  const [me, setMe] = useState<Me>(() => loadMe(api.players[0]));
+export function OnlineHub({ self, online, initialCode, onBack, onDress }: { self: Player; online: OnlineApi; initialCode?: string; onBack: () => void; onDress: () => void }) {
   const [code, setCode] = useState(initialCode || '');
   const busy = !!online.connecting;
-  const cycle = () => {
-    sfx('pop');
-    const i = EMOJIS.indexOf(me.emoji);
-    setMe({ ...me, emoji: EMOJIS[(i + 1) % EMOJIS.length] });
-  };
-  const named = { ...me, name: me.name.trim() || 'Jogador' };
+  const named: Me = { name: self.name.trim() || 'Jogador', emoji: self.emoji, look: self.look, profileId: self.id };
   return (
     <div className="screen">
       <div className="row between">
@@ -39,12 +33,13 @@ export function OnlineHub({ api, online, initialCode, onBack }: { api: GameApi; 
         <p className="muted" style={{ margin: 0 }}>Cada um no próprio celular. Funciona melhor com todo mundo no mesmo Wi-Fi.</p>
       </div>
 
-      <section className="card stack">
-        <div className="caps">Você</div>
-        <div className="player-row">
-          <button onClick={cycle} aria-label="Trocar bichinho"><Avatar p={{ emoji: me.emoji, color: '#ff4f9a' }} /></button>
-          <input className="name-input" value={me.name} maxLength={14} aria-label="Seu nome" onChange={(e) => setMe({ ...me, name: e.target.value })} />
+      <section className="card row">
+        <button onClick={onDress} aria-label="Abrir vestiário"><Avatar p={self} size="l" /></button>
+        <div className="grow">
+          <div className="caps">Você entra como</div>
+          <b className="title-m">{self.name}</b>
         </div>
+        <button className="btn ghost sm" onClick={onDress}>👚 Visual</button>
       </section>
 
       <button className="btn big pink" disabled={busy} onClick={() => { unlockAudio(); sfx('go'); online.createRoom(named); }}>
@@ -268,7 +263,7 @@ export function OnlineGame({ api, online, onQuit }: { api: GameApi; online: Onli
         : <Waiting g={view} online={online} onQuit={onQuit} emoji="🎡" title={`${nameOf(r.spinnerId)} está girando a roleta…`} />;
       break;
     case 'final':
-      screen = <Final api={adapter} g={view} online={host} />;
+      screen = <Final api={adapter} g={view} online={host} myReward={online.myReward} />;
       break;
     default:
       screen = null;

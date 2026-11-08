@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { play, sfx, type Playing } from '../audio/engine';
 import type { Player } from '../game/model';
+import { Character } from './Character';
 
 export function Logo({ big = false }: { big?: boolean }) {
   return (
@@ -44,8 +45,12 @@ export function Seg<T extends string | number>({ value, options, onChange, label
   );
 }
 
-export function Avatar({ p, size = '' }: { p: Pick<Player, 'emoji' | 'color'>; size?: '' | 's' | 'l' | 'xl' }) {
-  return <div className={`avatar ${size}`} style={{ ['--c' as string]: p.color }}>{p.emoji}</div>;
+export function Avatar({ p, size = '' }: { p: Pick<Player, 'emoji' | 'color'> & { look?: Player['look'] }; size?: '' | 's' | 'l' | 'xl' }) {
+  return (
+    <div className={`avatar ${size} ${p.look ? 'has-char' : ''}`} style={{ ['--c' as string]: p.color }}>
+      {p.look ? <Character look={p.look} view="bust" /> : p.emoji}
+    </div>
+  );
 }
 
 export function Sheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {

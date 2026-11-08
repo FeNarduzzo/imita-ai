@@ -7,6 +7,7 @@ import {
   addTake, ANCHORS, applyWheelState, buildRound, EMPTY_SCORE, endRoundState, makePlan, newGame, patchTake as patchTakeState,
   pickAnchors, revealState, validateStart,
 } from './engine';
+import { addCoins, rewardFor } from './character';
 import type { GameState, Phase, Player, Settings, SlotId, Take } from './model';
 import { loadPlayers, loadRecent, loadSettings, pushRecent, savePlayers, saveSettings } from './storage';
 
@@ -183,10 +184,14 @@ export function useGame() {
     const nextIdx = g.round.index + 1;
     if (nextIdx >= g.plan.length) {
       sfx('win');
+      const ranking = [...g.players].sort((a, b) => (g.totals[b.id] || 0) - (g.totals[a.id] || 0));
+      const rewards: Record<string, number> = {};
+      ranking.forEach((p, i) => { rewards[p.id] = rewardFor(g.totals[p.id] || 0, i); addCoins(p.id, rewards[p.id]); });
+      update((s) => ({ ...s, rewards }));
       setPhase('final');
     } else if (g.settings.wheel) setPhase('wheel');
     else beginRound(nextIdx);
-  }, [beginRound]);
+  }, [beginRound, update]);
 
   const applyWheel = useCallback((slotId: SlotId, targetId?: string) => {
     const g = gameRef.current!;

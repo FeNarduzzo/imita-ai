@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { sfx, unlockAudio } from '../audio/engine';
 import { deleteCustom, deleteImported, importFiles, loadPreview, type PackInfo } from '../audio/library';
 import { Avatar, Logo, Seg, Sheet, Toggle, usePlayer } from '../components/ui';
-import { EMOJIS, MAX_PLAYERS, newPlayer, TEAMS, type Player } from '../game/model';
+import { MAX_PLAYERS, newPlayer, TEAMS, type Player } from '../game/model';
 import type { GameApi } from '../game/useGame';
 
-export function Home({ api, onOnline }: { api: GameApi; onOnline: () => void }) {
+export function Home({ api, onBack, onDress }: { api: GameApi; onBack: () => void; onDress: (p: Player) => void }) {
   const { settings: s, setSettings, players, setPlayers, packs } = api;
   const [query, setQuery] = useState('');
   const [preview, setPreview] = useState<PackInfo | null>(null);
@@ -44,16 +44,6 @@ export function Home({ api, onOnline }: { api: GameApi; onOnline: () => void }) 
   }, [packs, query]);
 
   const updatePlayer = (id: string, patch: Partial<Player>) => setPlayers(players.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-  const cycleEmoji = (p: Player) => {
-    sfx('pop');
-    const used = new Set(players.map((x) => x.emoji));
-    let i = EMOJIS.indexOf(p.emoji);
-    for (let k = 0; k < EMOJIS.length; k++) {
-      i = (i + 1) % EMOJIS.length;
-      if (!used.has(EMOJIS[i])) break;
-    }
-    updatePlayer(p.id, { emoji: EMOJIS[i] });
-  };
   const togglePack = (id: string) => {
     sfx('click');
     setSettings({ packIds: s.packIds.includes(id) ? s.packIds.filter((x) => x !== id) : [...s.packIds, id] });
@@ -64,6 +54,7 @@ export function Home({ api, onOnline }: { api: GameApi; onOnline: () => void }) 
   return (
     <div className="screen" style={{ paddingBottom: 0 }}>
       <header className="row between">
+        <button className="icon-btn" aria-label="Voltar ao salão" onClick={onBack}>←</button>
         <Logo />
         <button className="icon-btn" aria-label="Configurações" onClick={() => setShowOptions(true)}>⚙️</button>
       </header>
@@ -79,7 +70,7 @@ export function Home({ api, onOnline }: { api: GameApi; onOnline: () => void }) 
         <div className="stack">
           {players.map((p) => (
             <div className="player-row" key={p.id}>
-              <button onClick={() => cycleEmoji(p)} aria-label={`Trocar bichinho de ${p.name}`}><Avatar p={p} /></button>
+              <button onClick={() => { sfx('pop'); onDress(p); }} aria-label={`Vestiário de ${p.name}`}><Avatar p={p} /></button>
               <input
                 className="name-input"
                 value={p.name}
@@ -204,7 +195,6 @@ export function Home({ api, onOnline }: { api: GameApi; onOnline: () => void }) 
         <button className="btn big pink" disabled={api.busy || !api.packsLoaded} onClick={() => { sfx('go'); api.startGame(); }}>
           {api.busy ? 'Preparando…' : 'COMEÇAR'}
         </button>
-        <button className="btn ghost full" onClick={() => { sfx('click'); onOnline(); }}>🌐 Jogar online · cada um no seu celular</button>
         <div className="small faint" style={{ textAlign: 'center' }}>
           {s.rounds} rodadas · {players.length} {players.length === 1 ? 'jogador' : 'jogadores'} · {selected.length} {selected.length === 1 ? 'pacote' : 'pacotes'} · v{__APP_VERSION__}
         </div>
