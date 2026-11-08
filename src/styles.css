@@ -491,7 +491,7 @@ canvas.wave { width: 100%; height: 90px; display: block; }
 .reward-banner { width: 100%; text-align: center; padding: 10px 14px; border-radius: 14px; background: rgba(255, 210, 63, 0.14); border: 1px solid rgba(255, 210, 63, 0.5); animation: pop 0.5s both; }
 
 /* ---------------------------------------------------------------- cartas */
-.card { position: relative; flex: none; border-radius: 9%/6.5%; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45); user-select: none; animation: deal 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.1) both; }
+.card.face, .card.back { position: relative; flex: none; border-radius: 9%/6.5%; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45); user-select: none; animation: deal 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.1) both; }
 @keyframes deal { from { transform: translateY(-40px) rotate(-8deg) scale(0.8); opacity: 0; } }
 .card.face { background: linear-gradient(160deg, #ffffff, #f1ece4); color: #1d1a22; font-weight: 700; line-height: 0.95; border: 1px solid rgba(0, 0, 0, 0.12); padding: 0; }
 .card.face.red { color: #d62d3d; }
@@ -619,3 +619,44 @@ button.card.face:active { transform: translateY(-2px) scale(0.97); }
 .dv-role.next { color: var(--cyan); }
 .dv-role.played { color: var(--pink); }
 .dv-role.doubt { background: #ff5d5d; color: #fff; }
+
+/* ---------------------------------------------------------------- contas (login, cadastro, minha conta) */
+.auth-screen { gap: 16px; justify-content: flex-start; padding-top: calc(28px + var(--safe-top)); }
+.auth-hero { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.auth-card { width: 100%; max-width: 440px; align-self: center; gap: 14px; }
+.auth-field { display: flex; flex-direction: column; gap: 6px; }
+.auth-label { font-size: 14px; font-weight: 600; color: var(--muted); }
+.auth-input {
+  width: 100%; height: 50px; border-radius: 14px; border: 2px solid var(--line); background: rgba(0, 0, 0, 0.28);
+  padding: 0 14px; font-size: 17px; font-weight: 600; outline: none; user-select: text; -webkit-user-select: text;
+}
+.auth-input:focus { border-color: var(--cyan); background: rgba(0, 0, 0, 0.36); }
+.auth-input.bad, .auth-pass.bad .auth-input { border-color: rgba(255, 93, 93, 0.75); }
+.auth-input[type='date'] { color-scheme: dark; }
+.auth-pass { position: relative; }
+.auth-pass .auth-input { padding-right: 52px; }
+.auth-eye { position: absolute; right: 4px; top: 4px; width: 42px; height: 42px; border: 0; border-radius: 10px; background: transparent; font-size: 20px; cursor: pointer; }
+.auth-eye:focus-visible { outline: 2px solid var(--cyan); }
+.auth-guardian { padding: 12px; border-radius: 14px; background: rgba(255, 210, 63, 0.08); border: 1px solid rgba(255, 210, 63, 0.35); gap: 10px; }
+.check-row { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 1.4; cursor: pointer; }
+.check-row input { width: 22px; height: 22px; flex: none; margin: 1px 0 0; accent-color: var(--pink); }
+.link-btn.inline { font-size: inherit; align-self: auto; padding: 0; border: 0; background: none; cursor: pointer; }
+.link-btn.danger { color: #ff8a8a; }
+.ok-text { color: var(--lime); }
+.bad-text { color: #ff8a8a; }
+.auth-legal { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; padding-bottom: calc(12px + var(--safe-bottom)); }
+.legal-doc { display: flex; flex-direction: column; gap: 14px; font-size: 14px; line-height: 1.5; }
+.legal-doc h3 { margin: 0 0 4px; font-size: 15px; color: var(--yellow); }
+.legal-doc p { margin: 0 0 6px; }
+.legal-doc ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.blocked-card { max-width: 420px; align-items: center; text-align: center; gap: 12px; }
+.blocked-icon { font-size: 56px; line-height: 1; }
+.lvl-card { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: 14px; background: rgba(0, 0, 0, 0.25); border: 1px solid color-mix(in srgb, var(--tc) 55%, transparent); }
+.lvl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.lvl-cat { display: flex; flex-direction: column; gap: 4px; padding: 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); }
+.lvl-bar { height: 8px; border-radius: 99px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.lvl-bar > div { height: 100%; border-radius: inherit; transition: width 0.6s ease; }
+.danger-box { padding: 12px; border-radius: 14px; background: rgba(255, 93, 93, 0.1); border: 1px solid rgba(255, 93, 93, 0.45); gap: 10px; }
+.btn.yellow { --c: var(--yellow); --shadow: #b8901c; color: var(--ink); }
+.account-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 46vw; height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; font-weight: 600; cursor: pointer; }
+.account-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

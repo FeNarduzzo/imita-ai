@@ -110,5 +110,8 @@
       },
       "artifactName": "ImitaAi-${version}-mac-${arch}.${ext}"
     }
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0"
   }
 }

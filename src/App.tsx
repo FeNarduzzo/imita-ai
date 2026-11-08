@@ -1,7 +1,9 @@
-import { useState } from 'react';
-import { Confirm } from './components/ui';
+import { useEffect, useState } from 'react';
+import { useAuth } from './auth/useAuth';
+import { Confirm, Logo } from './components/ui';
 import type { Player } from './game/model';
-import { loadSelfId, saveSelfId } from './game/storage';
+import { loadSelfId } from './game/storage';
+import { AccountSheet, AuthScreen, BlockedScreen, WarningSheet } from './screens/Auth';
 import { useGame } from './game/useGame';
 import { useOnline } from './online/useOnline';
 import { Home } from './screens/Home';
@@ -27,24 +29,37 @@ export default function App() {
   const api = useGame();
   const online = useOnline(api);
   const table = useTable();
+  const auth = useAuth();
   const [quit, setQuit] = useState(false);
   const [linkCode] = useState(codeFromLink);
   const [view, setView] = useState<View>(linkCode ? (linkCode.kind === 'mesa' ? 'table-hub' : 'online-hub') : 'salao');
-  const [selfId, setSelfId] = useState(() => loadSelfId(api.players));
+  const [selfId] = useState(() => loadSelfId(api.players));
   const [dress, setDress] = useState<{ pid: string; tab: 'closet' | 'shop' } | null>(null);
   const [salaoKey, setSalaoKey] = useState(0);
+  const [account, setAccount] = useState(false);
   const g = api.game;
   const onQuit = () => setQuit(true);
   const self = api.players.find((p) => p.id === selfId) || api.players[0];
 
+  // O dono do aparelho é a conta logada: no jogo, ele aparece com o nome de usuário.
+  const accountName = auth.me?.username;
+  useEffect(() => {
+    if (!accountName || !self || self.name === accountName) return;
+    api.setPlayers(api.players.map((p) => (p.id === self.id ? { ...p, name: accountName } : p)));
+  }, [accountName, self?.id, self?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Ninguém entra no jogo sem login.
+  if (auth.status !== 'ready' || !auth.me) {
+    return (
+      <div className="app">
+        {auth.status === 'loading'
+          ? <div className="screen center"><Logo big /><div className="spinner" /></div>
+          : auth.status === 'blocked' ? <BlockedScreen auth={auth} /> : <AuthScreen auth={auth} />}
+      </div>
+    );
+  }
+
   const openDress = (p: Player, tab: 'closet' | 'shop' = 'closet') => setDress({ pid: p.id, tab });
-  const switchSelf = () => {
-    const i = api.players.findIndex((p) => p.id === self.id);
-    const next = api.players[(i + 1) % api.players.length];
-    setSelfId(next.id);
-    saveSelfId(next.id);
-    setSalaoKey((k) => k + 1);
-  };
   const openDest = (d: Dest) => {
     if (d === 'imitacao') setView('imitacao');
     else if (d === 'imitacao-online') setView('online-hub');
@@ -91,7 +106,7 @@ export default function App() {
     screen = <Home api={api} onBack={() => setView('salao')} onDress={(p) => openDress(p)} />;
   } else {
     key = `salao-${salaoKey}`;
-    screen = <Salao self={self} players={api.players} onSwitchSelf={switchSelf} onDress={openDress} onOpen={openDest} />;
+    screen = <Salao self={self} players={api.players} account={{ name: auth.me.username, onOpen: () => setAccount(true) }} onDress={openDress} onOpen={openDest} />;
   }
 
   const dressPlayer = dress && api.players.find((p) => p.id === dress.pid);
@@ -114,6 +129,8 @@ export default function App() {
       ) : (
         <div key={key} style={{ display: 'contents' }}>{screen}</div>
       )}
+      {account && <AccountSheet auth={auth} onClose={() => setAccount(false)} />}
+      <WarningSheet auth={auth} />
       {quit && (
         <Confirm
           title={inTable ? (table.mode === 'host' ? 'Fechar a mesa?' : 'Sair da mesa?') : inOnline ? (online.isHost ? 'Encerrar a sala?' : 'Sair da sala?') : 'Sair da partida?'}

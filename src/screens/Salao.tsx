@@ -29,10 +29,12 @@ const GAMES: Record<Tab, GameCard[]> = {
   ],
 };
 
-export function Salao({ self, players, onSwitchSelf, onDress, onOpen }: {
+export function Salao({ self, players, onSwitchSelf, account, onDress, onOpen }: {
   self: Player;
   players: Player[];
-  onSwitchSelf: () => void;
+  /** Só sem conta: trocar quem é o dono do aparelho. Com conta, o dono é quem está logado. */
+  onSwitchSelf?: () => void;
+  account?: { name: string; onOpen: () => void };
   onDress: (p: Player, tab?: 'closet' | 'shop') => void;
   onOpen: (d: Dest) => void;
 }) {
@@ -47,7 +49,14 @@ export function Salao({ self, players, onSwitchSelf, onDress, onOpen }: {
     <div className="screen salao">
       <header className="row between">
         <Logo />
-        <CoinPill coins={coins} />
+        <div className="row" style={{ gap: 8 }}>
+          {account && (
+            <button className="account-chip" onClick={() => { sfx('click'); account.onOpen(); }} aria-label={`Minha conta: ${account.name}`}>
+              👤 <span>{account.name}</span>
+            </button>
+          )}
+          <CoinPill coins={coins} />
+        </div>
       </header>
 
       <section className="profile-card">
@@ -62,7 +71,7 @@ export function Salao({ self, players, onSwitchSelf, onDress, onOpen }: {
             <button className="btn ghost sm" onClick={() => onDress(self, 'shop')}>🛍️ Loja</button>
             <button className="btn ghost sm" onClick={() => setCodeOpen(true)}>🎁 Código</button>
           </div>
-          {players.length > 1 && <button className="link-btn" onClick={() => { sfx('click'); onSwitchSelf(); }}>Não é você? Trocar perfil</button>}
+          {onSwitchSelf && players.length > 1 && <button className="link-btn" onClick={() => { sfx('click'); onSwitchSelf(); }}>Não é você? Trocar perfil</button>}
         </div>
       </section>
 
