@@ -489,3 +489,52 @@ canvas.wave { width: 100%; height: 90px; display: block; }
 .soon-badge { position: absolute; top: 10px; right: 10px; background: rgba(0, 0, 0, 0.45); }
 .coin-gain { color: var(--yellow); font-weight: 700; }
 .reward-banner { width: 100%; text-align: center; padding: 10px 14px; border-radius: 14px; background: rgba(255, 210, 63, 0.14); border: 1px solid rgba(255, 210, 63, 0.5); animation: pop 0.5s both; }
+
+/* ---------------------------------------------------------------- cartas */
+.card { position: relative; flex: none; border-radius: 9%/6.5%; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45); user-select: none; animation: deal 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.1) both; }
+@keyframes deal { from { transform: translateY(-40px) rotate(-8deg) scale(0.8); opacity: 0; } }
+.card.face { background: linear-gradient(160deg, #ffffff, #f1ece4); color: #1d1a22; font-weight: 700; line-height: 0.95; border: 1px solid rgba(0, 0, 0, 0.12); padding: 0; }
+.card.face.red { color: #d62d3d; }
+.card.face .corner { position: absolute; text-align: center; }
+.card.face .tl { top: 5%; left: 7%; }
+.card.face .br { bottom: 5%; right: 7%; transform: rotate(180deg); }
+.card.face .pip { position: absolute; inset: 0; display: grid; place-items: center; line-height: 1; }
+.card.face.hl { box-shadow: 0 0 0 3px var(--yellow), 0 6px 14px rgba(0, 0, 0, 0.5); transform: translateY(-6px); }
+.card.back { background: #ff4f9a; padding: 6%; border: 2px solid #fff; }
+.card-back-inner { width: 100%; height: 100%; border-radius: 8%/6%; display: grid; place-items: center; font-size: 60%;
+  background: repeating-linear-gradient(45deg, #7b5cff 0 6px, #6247d9 6px 12px); }
+.card-back-inner span { filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.3)); }
+button.card.face:active { transform: translateY(-2px) scale(0.97); }
+
+/* ---------------------------------------------------------------- mesas */
+.table-screen { gap: 10px; }
+.felt { position: relative; flex: 1; min-height: 430px; border-radius: 200px 200px 28px 28px / 120px 120px 28px 28px; overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 10%, #1f8a5c 0%, #136843 55%, #0b4a2f 100%); border: 10px solid #6b3a1f; box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.45), 0 10px 30px rgba(0, 0, 0, 0.5); }
+.felt::after { content: ''; position: absolute; inset: 0; background: repeating-radial-gradient(circle at 50% 0, rgba(255, 255, 255, 0.02) 0 2px, transparent 2px 6px); pointer-events: none; }
+.dealer { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; z-index: 2; }
+.dealer-char { width: 64px; height: 64px; border-radius: 50%; background: rgba(0, 0, 0, 0.25); }
+.hand { position: relative; display: flex; align-items: flex-end; justify-content: center; gap: 4px; min-height: 20px; }
+.hand-val { display: inline-grid; place-items: center; min-width: 30px; height: 24px; padding: 0 8px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); font-weight: 700; font-size: 14px; }
+.hand-val.sm { position: absolute; top: -10px; right: -12px; min-width: 24px; height: 20px; font-size: 12px; z-index: 3; }
+.felt-text { position: absolute; top: 47%; left: 0; right: 0; text-align: center; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; color: rgba(255, 230, 160, 0.55); }
+.felt-banner { position: absolute; top: 38%; left: 50%; transform: translateX(-50%); padding: 6px 14px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); font-weight: 700; white-space: nowrap; z-index: 4; animation: pop 0.4s both; }
+.bj-seat { position: absolute; transform: translate(-50%, -30%); display: flex; flex-direction: column; align-items: center; gap: 3px; width: 92px; z-index: 2; transition: transform 0.2s; }
+.bj-seat.active .avatar { box-shadow: 0 0 0 3px var(--yellow), 0 0 18px var(--yellow); }
+.bj-seat.me { z-index: 3; }
+.bj-hands { display: flex; gap: 6px; min-height: 46px; align-items: flex-end; }
+.bj-hands .hand.cur { outline: 2px dashed var(--yellow); outline-offset: 3px; border-radius: 6px; }
+.seat-name { font-size: 11.5px; font-weight: 700; max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7); }
+.bet-spot { width: 46px; height: 22px; border-radius: 999px; border: 2px dashed rgba(255, 230, 160, 0.5); display: grid; place-items: center; }
+.chip-stack { font-size: 11px; font-weight: 700; color: var(--yellow); white-space: nowrap; }
+.result { position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%); white-space: nowrap; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: #444; z-index: 4; animation: pop 0.35s both; }
+.result.win, .result.blackjack { background: var(--lime); color: var(--ink); }
+.result.push { background: var(--cyan); color: var(--ink); }
+.result.lose, .result.bust { background: var(--red); color: #fff; }
+.bj-controls { display: flex; flex-direction: column; gap: 10px; padding-bottom: var(--safe-bottom); }
+.bj-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.status { text-align: center; color: var(--muted); font-weight: 600; min-height: 52px; display: grid; place-items: center; }
+.poker-chip { width: 50px; height: 50px; border-radius: 50%; font-weight: 700; font-size: 14px; color: #fff; border: 4px dashed rgba(255, 255, 255, 0.8); box-shadow: 0 4px 0 rgba(0, 0, 0, 0.4); }
+.poker-chip:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4); }
+.poker-chip:disabled { opacity: 0.35; }
+.poker-chip.c5 { background: #8e8e99; } .poker-chip.c10 { background: #2f6fe0; } .poker-chip.c25 { background: #2f9e5b; }
+.poker-chip.c50 { background: #e8434b; } .poker-chip.c100 { background: #26232b; }

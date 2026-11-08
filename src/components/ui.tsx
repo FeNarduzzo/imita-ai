@@ -45,10 +45,10 @@ export function Seg<T extends string | number>({ value, options, onChange, label
   );
 }
 
-export function Avatar({ p, size = '' }: { p: Pick<Player, 'emoji' | 'color'> & { look?: Player['look'] }; size?: '' | 's' | 'l' | 'xl' }) {
+export function Avatar({ p, size = '' }: { p: Pick<Player, 'color'> & { emoji?: string; look?: Player['look'] }; size?: '' | 's' | 'l' | 'xl' }) {
   return (
     <div className={`avatar ${size} ${p.look ? 'has-char' : ''}`} style={{ ['--c' as string]: p.color }}>
-      {p.look ? <Character look={p.look} view="bust" /> : p.emoji}
+      {p.look ? <Character look={p.look} view="bust" /> : (p.emoji || '🙂')}
     </div>
   );
 }

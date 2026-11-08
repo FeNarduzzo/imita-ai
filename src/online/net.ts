@@ -2,7 +2,8 @@
 // aparelhos; o jogo e os áudios vão direto de um para o outro.
 import Peer, { type DataConnection } from 'peerjs';
 
-const ROOM_PREFIX = 'imita-ai-sala-v1-';
+export const ROOM_PREFIX = 'imita-ai-sala-v1-';
+export const TABLE_PREFIX = 'imita-ai-mesa-v1-';
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ';
 
 export const makeCode = () => Array.from({ length: 4 }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join('');
@@ -26,6 +27,7 @@ function friendly(err: unknown): string {
 export class HostNet {
   peer: Peer | null = null;
   code = '';
+  constructor(private prefix = ROOM_PREFIX) {}
   private conns = new Map<string, DataConnection>();
   onMessage: (connId: string, msg: Msg) => void = () => {};
   onJoin: (connId: string) => void = () => {};
@@ -37,7 +39,7 @@ export class HostNet {
       let tries = 0;
       const attempt = () => {
         const code = makeCode();
-        const peer = new Peer(ROOM_PREFIX + code, { debug: 0 });
+        const peer = new Peer(this.prefix + code, { debug: 0 });
         peer.on('open', () => {
           this.peer = peer;
           this.code = code;
@@ -91,7 +93,7 @@ export class GuestNet {
   onMessage: (msg: Msg) => void = () => {};
   onClose: () => void = () => {};
 
-  join(code: string): Promise<void> {
+  join(code: string, prefix = ROOM_PREFIX): Promise<void> {
     return new Promise((resolve, reject) => {
       const peer = new Peer({ debug: 0 });
       this.peer = peer;
@@ -105,7 +107,7 @@ export class GuestNet {
       const timer = setTimeout(() => fail(new Error('A sala não respondeu. Confira o código e tente de novo.')), 15000);
       peer.on('error', (e) => { if (!done) { clearTimeout(timer); fail(e); } });
       peer.on('open', () => {
-        const conn = peer.connect(ROOM_PREFIX + cleanCode(code), { reliable: true });
+        const conn = peer.connect(prefix + cleanCode(code), { reliable: true });
         this.conn = conn;
         conn.on('open', () => {
           if (done) return;

@@ -14,13 +14,13 @@ interface GameCard { dest: Dest; title: string; sub: string; art: string; tint: 
 const GAMES: Record<Tab, GameCard[]> = {
   offline: [
     { dest: 'imitacao', title: 'Imitação', sub: 'Passa o celular: ouça, imite e ganhe nota', art: '🎤', tint: '#ff4f9a', ready: true },
-    { dest: 'blackjack', title: 'Blackjack', sub: 'Você contra o dealer, apostando moedas', art: '🂡', tint: '#2ec4b6', ready: false },
+    { dest: 'blackjack', title: 'Blackjack', sub: 'Você contra o dealer, apostando moedas', art: '🂡', tint: '#2ec4b6', ready: true },
     { dest: 'truco', title: 'Truco Paulista', sub: 'Com vira, contra bots', art: '🃏', tint: '#ff8a3d', ready: false },
     { dest: 'poker', title: 'Poker', sub: "Texas Hold'em contra bots", art: '♠️', tint: '#7b5cff', ready: false },
   ],
   online: [
     { dest: 'imitacao-online', title: 'Imitação online', sub: 'Cada um no próprio celular, sala com código', art: '🌐', tint: '#ff4f9a', ready: true },
-    { dest: 'cartas-online', title: 'Mesas de cartas', sub: 'Truco, Poker e Blackjack com a galera', art: '🃏', tint: '#2ec4b6', ready: false },
+    { dest: 'cartas-online', title: 'Mesas de cartas', sub: 'Mesa com código e líder 👑 que configura tudo', art: '🃏', tint: '#2ec4b6', ready: true },
   ],
   wifi: [
     { dest: 'imitacao-wifi', title: 'Imitação na Wi-Fi', sub: 'Sem internet: conecta lendo QR codes', art: '📶', tint: '#ff4f9a', ready: false },
