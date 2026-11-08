@@ -49,7 +49,9 @@ export function loadPlayers(): Player[] {
     return p;
   }
   const a = newPlayer([], 'Jogador 1');
-  return [a, newPlayer([a], 'Jogador 2')];
+  const fresh = [a, newPlayer([a], 'Jogador 2')];
+  write(K.players, fresh); // salva já: o id do dono do aparelho (e a carteira dele) não pode mudar a cada abertura
+  return fresh;
 }
 export const savePlayers = (p: Player[]) => write(K.players, p);
 

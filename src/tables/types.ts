@@ -51,6 +51,14 @@ export interface GameModule<S extends BaseState = BaseState, A = unknown, V = un
   bot(state: S, seatId: string): A | null;
   /** O que `seatId` pode ver (esconde as cartas dos outros). */
   view(state: S, seatId: string | null): V;
+  /** Dá para entrar com a partida em andamento? (no Truco, não) */
+  joinable: boolean;
+  /** É um intervalo entre rodadas (dá para sentar gente nova)? */
+  canAdmit?(state: S): boolean;
+  addSeat?(state: S, seat: SeatInfo): S;
+  removeSeat?(state: S, seatId: string): S;
+  /** Partida interrompida no meio (líder voltou à sala ou fechou a mesa): devolve as apostas em jogo. */
+  refund?(state: S): S;
 }
 
 export const isError = (x: unknown): x is { error: string } => !!x && typeof x === 'object' && 'error' in (x as object);

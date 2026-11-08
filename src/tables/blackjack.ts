@@ -246,4 +246,22 @@ export const Blackjack: GameModule<BjState, BjAction> = {
   view(s) {
     return { ...s, shoe: [], dealer: s.holeHidden && s.dealer.length > 1 ? [s.dealer[0]] : s.dealer, shoeCount: s.shoe.length };
   },
+
+  joinable: true,
+  canAdmit: (s) => s.phase === 'bet',
+  refund: (s) => {
+    if (s.phase !== 'play' && s.phase !== 'dealer') return s; // na fase de aposta nada foi cobrado; no acerto já foi pago
+    let n: BjState = s;
+    for (const seat of s.seats) {
+      const back = (s.st[seat.id]?.hands || []).reduce((a, h) => a + h.bet, 0);
+      if (back) n = coin(n, seat.id, back, 'aposta devolvida') as BjState;
+    }
+    return { ...n, phase: 'settle', over: true, banner: 'Rodada interrompida — apostas devolvidas.' };
+  },
+  addSeat: (s, seat) => ({ ...s, seats: [...s.seats, seat], st: { ...s.st, [seat.id]: { bet: 0, ready: false, hands: [], cur: 0 } } }),
+  removeSeat: (s, id) => {
+    const st = { ...s.st };
+    delete st[id];
+    return { ...s, seats: s.seats.filter((x) => x.id !== id), st };
+  },
 };

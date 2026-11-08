@@ -6,7 +6,7 @@ import { getWallet } from '../game/character';
 import type { Player } from '../game/model';
 import { CoinPill, RedeemSheet } from './Wardrobe';
 
-export type Dest = 'imitacao' | 'imitacao-online' | 'imitacao-wifi' | 'blackjack' | 'truco' | 'poker' | 'cartas-online' | 'cartas-wifi';
+export type Dest = 'imitacao' | 'imitacao-online' | 'imitacao-wifi' | 'blackjack' | 'duvido' | 'truco' | 'poker' | 'cartas-online' | 'cartas-wifi';
 type Tab = 'offline' | 'online' | 'wifi';
 
 interface GameCard { dest: Dest; title: string; sub: string; art: string; tint: string; ready: boolean }
@@ -15,6 +15,7 @@ const GAMES: Record<Tab, GameCard[]> = {
   offline: [
     { dest: 'imitacao', title: 'Imitação', sub: 'Passa o celular: ouça, imite e ganhe nota', art: '🎤', tint: '#ff4f9a', ready: true },
     { dest: 'blackjack', title: 'Blackjack', sub: 'Você contra o dealer, apostando moedas', art: '🂡', tint: '#2ec4b6', ready: true },
+    { dest: 'duvido', title: 'Duvido!', sub: 'Jogo do mentiroso: blefe e não estoure o balão', art: '🤥', tint: '#ff5d5d', ready: true },
     { dest: 'truco', title: 'Truco Paulista', sub: 'Com vira, contra bots', art: '🃏', tint: '#ff8a3d', ready: false },
     { dest: 'poker', title: 'Poker', sub: "Texas Hold'em contra bots", art: '♠️', tint: '#7b5cff', ready: false },
   ],

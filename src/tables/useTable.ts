@@ -18,6 +18,10 @@ export interface RoomPublic {
   gameId: GameId;
   config: Config;
   phase: 'lobby' | 'game';
+  /** Deixa entrar com a partida em andamento (senta na próxima rodada). */
+  allowLateJoin: boolean;
+  /** Quem chegou no meio e espera a próxima rodada. */
+  waiting: RoomSeat[];
 }
 export interface Self { id: string; name: string; color: string; look?: Look }
 
@@ -50,6 +54,7 @@ export function useTable() {
   const guestNet = useRef<GuestNet | null>(null);
   const seatByConn = useRef(new Map<string, string>());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const publishRef = useRef<() => void>(() => {});
   const applied = useRef(new Set<number>());
   const selfRef = useRef<Self | null>(null);
   const myIdRef = useRef<string | null>(null);
@@ -70,7 +75,48 @@ export function useTable() {
 
   // ---------------------------------------------------------------- anfitrião / offline
 
+  /** Senta quem está esperando, se a partida está num intervalo entre rodadas. */
+  const admitWaiting = () => {
+    const r = roomRef.current;
+    let st = stateRef.current;
+    if (!r || !st || st.over || r.phase !== 'game' || !r.waiting.length) return;
+    const m = mod();
+    if (!m.joinable || !m.canAdmit?.(st) || !m.addSeat) return;
+    let seats = r.seats;
+    const still: RoomSeat[] = [];
+    for (const w of r.waiting) {
+      const info = { id: w.id, name: w.name, color: w.color, look: w.look, bot: false, bank: w.bank };
+      if (seats.length < m.maxSeats) {
+        st = m.addSeat(st, info);
+        seats = [...seats, w];
+      } else {
+        const bot = seats.find((x) => x.bot);
+        if (bot && m.removeSeat) {
+          st = m.addSeat(m.removeSeat(st, bot.id), info);
+          seats = seats.map((x) => (x.id === bot.id ? w : x));
+        } else still.push(w);
+      }
+    }
+    if (still.length !== r.waiting.length) {
+      stateRef.current = { ...st, banner: 'Gente nova na mesa! 👋' };
+      roomRef.current = { ...r, seats, waiting: still };
+      sfx('pop');
+    }
+  };
+
+  /** Interrompeu no meio? Devolve as apostas em jogo e avisa todo mundo antes de largar a partida. */
+  const refundInPlay = () => {
+    const st = stateRef.current;
+    const m = roomRef.current && mod();
+    if (!st || st.over || !m?.refund || roomRef.current?.phase !== 'game') return;
+    const back = m.refund(st);
+    if (back === st) return;
+    stateRef.current = back;
+    publishRef.current();
+  };
+
   const publish = useCallback(() => {
+    admitWaiting();
     const r = roomRef.current;
     if (!r) return;
     const st = stateRef.current;
@@ -89,6 +135,7 @@ export function useTable() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyCoins]);
+  publishRef.current = publish;
 
   const schedule = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -161,7 +208,7 @@ export function useTable() {
         const gm = MODULES[g]!;
         let seats = r.seats.slice(0, gm.maxSeats);
         while (seats.length < gm.minSeats) seats = [...seats, newBot(seats)];
-        setRoomState({ gameId: g, config: { ...gm.defaultConfig }, seats });
+        setRoomState({ gameId: g, config: { ...gm.defaultConfig }, seats, allowLateJoin: gm.joinable && r.allowLateJoin });
         return null;
       }
       case 'config':
@@ -199,10 +246,17 @@ export function useTable() {
         schedule();
         return null;
       }
-      case 'lobby':
+      case 'lobby': {
+        refundInPlay();
         stateRef.current = null;
         if (timer.current) clearTimeout(timer.current);
-        setRoomState({ phase: 'lobby' });
+        const room = roomRef.current!;
+        const free = Math.max(0, m.maxSeats - room.seats.length);
+        setRoomState({ phase: 'lobby', seats: [...room.seats.map((x) => (x.online || !x.clientId ? x : { ...x, bot: true })), ...room.waiting.slice(0, free)], waiting: room.waiting.slice(free) });
+        return null;
+      }
+      case 'lateJoin':
+        setRoomState({ allowLateJoin: !!cmd.value });
         return null;
     }
     return 'Comando desconhecido.';
@@ -216,6 +270,20 @@ export function useTable() {
     if (msg.t === 'hello') {
       const cid = String(msg.clientId || '');
       let seat = r.seats.find((s) => s.clientId === cid);
+      let waitingSeat = r.waiting.find((s) => s.clientId === cid);
+      if (!seat && !waitingSeat && r.phase !== 'lobby') {
+        if (!mod().joinable) { net.send(connId, { t: 'reject', reason: `No ${mod().title} não dá para entrar com a partida em andamento. Espere a próxima.` }); return; }
+        if (!r.allowLateJoin) { net.send(connId, { t: 'reject', reason: 'O líder fechou a mesa para quem chega no meio da partida.' }); return; }
+        const color = COLORS.find((c) => !r.seats.some((s) => s.color === c)) || COLORS[(r.seats.length + r.waiting.length) % COLORS.length];
+        waitingSeat = { id: uid(), name: String(msg.name || 'Jogador').slice(0, 14), color, look: msg.look as Look | undefined, bot: false, bank: Math.max(0, Number(msg.bank) || 0), online: true, clientId: cid };
+        roomRef.current = { ...r, waiting: [...r.waiting, waitingSeat] };
+      }
+      if (waitingSeat) {
+        seatByConn.current.set(connId, waitingSeat.id);
+        net.send(connId, { t: 'welcome', you: waitingSeat.id });
+        publish();
+        return;
+      }
       if (!seat) {
         if (r.phase !== 'lobby') { net.send(connId, { t: 'reject', reason: 'A partida já começou nesta mesa.' }); return; }
         if (r.seats.length >= mod().maxSeats) {
@@ -248,6 +316,11 @@ export function useTable() {
     seatByConn.current.delete(connId);
     const r = roomRef.current;
     if (!seatId || !r) return;
+    if (r.waiting.some((w) => w.id === seatId)) {
+      roomRef.current = { ...r, waiting: r.waiting.filter((w) => w.id !== seatId) };
+      publish();
+      return;
+    }
     if (r.phase === 'lobby') {
       const seats = r.seats.filter((s) => s.id !== seatId);
       roomRef.current = { ...r, seats, leaderId: r.leaderId === seatId ? r.hostSeatId : r.leaderId };
@@ -282,7 +355,7 @@ export function useTable() {
     while (seats.length < wanted) seats = [...seats, newBot(seats)];
     myIdRef.current = me.id;
     setMyId(me.id);
-    roomRef.current = { code: null, leaderId: me.id, hostSeatId: me.id, seats, gameId, config: { ...m.defaultConfig }, phase: 'lobby' };
+    roomRef.current = { code: null, leaderId: me.id, hostSeatId: me.id, seats, gameId, config: { ...m.defaultConfig }, phase: 'lobby', allowLateJoin: m.joinable, waiting: [] };
     stateRef.current = null;
     setMode('offline');
     publish();
@@ -305,7 +378,7 @@ export function useTable() {
       const m = MODULES[gameId]!;
       let seats: RoomSeat[] = [me];
       while (seats.length < m.minSeats) seats = [...seats, newBot(seats)];
-      roomRef.current = { code, leaderId: me.id, hostSeatId: me.id, seats, gameId, config: { ...m.defaultConfig }, phase: 'lobby' };
+      roomRef.current = { code, leaderId: me.id, hostSeatId: me.id, seats, gameId, config: { ...m.defaultConfig }, phase: 'lobby', allowLateJoin: m.joinable, waiting: [] };
       stateRef.current = null;
       net.onMessage = (id, msg) => onHostMessage(id, msg);
       net.onLeave = (id) => onHostLeave(id);
@@ -369,6 +442,7 @@ export function useTable() {
   }, [mode, hostCommand]);
 
   const leave = useCallback(() => {
+    if (!guestNet.current) refundInPlay(); // offline ou anfitrião: quem fecha a mesa devolve as apostas
     if (timer.current) clearTimeout(timer.current);
     hostNet.current?.close();
     guestNet.current?.close();
@@ -390,8 +464,9 @@ export function useTable() {
   useEffect(() => () => { hostNet.current?.close(); guestNet.current?.close(); if (timer.current) clearTimeout(timer.current); }, []);
 
   const isLeader = !!room && room.leaderId === myId;
+  const isWaiting = !!room && !!myId && room.waiting?.some((w) => w.id === myId);
   return {
-    mode, room, view, myId, isLeader, error, setError, connecting, ended, toast,
+    mode, room, view, myId, isLeader, isWaiting, error, setError, connecting, ended, toast,
     openOffline, createRoom, joinRoom, act, command, leave,
   };
 }

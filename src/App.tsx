@@ -49,7 +49,7 @@ export default function App() {
     if (d === 'imitacao') setView('imitacao');
     else if (d === 'imitacao-online') setView('online-hub');
     else if (d === 'cartas-online') setView('table-hub');
-    else if (d === 'blackjack' || d === 'truco' || d === 'poker') table.openOffline(d, toSelf(self));
+    else if (d === 'blackjack' || d === 'duvido' || d === 'truco' || d === 'poker') table.openOffline(d, toSelf(self));
   };
 
   let screen;
