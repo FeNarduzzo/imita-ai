@@ -1,5 +1,19 @@
 # Novidades
 
+## 1.4
+
+- **Modo online:** cada um joga no próprio celular. Toque em "Jogar online" na tela inicial.
+- **Salas com código de 4 letras:** o anfitrião cria a sala; os outros entram digitando o código,
+  abrindo o link (`…/#sala=XXXX`) ou lendo o QR code.
+- **Gravação "Todos juntos" ou "Um de cada vez":** todo mundo imita ao mesmo tempo (cada um num lugar)
+  ou um por vez enquanto os outros ficam quietos (todos na mesma sala).
+- **O anfitrião comanda a partida:** sorteia o som, manda o áudio para todos, dá as notas, avança a
+  revelação e o ranking; quem gira a roleta gira no próprio celular.
+- **Conexão direta entre os aparelhos** (WebRTC via PeerJS, com servidores TURN gratuitos do PeerJS):
+  sem conta e sem custo.
+- **"Continuar sem quem falta":** o anfitrião segue a rodada se alguém sair ou demorar.
+- As regras da partida foram separadas em `src/game/engine.ts`, usado pelo jogo local e pelo online.
+
 ## 1.3
 
 - **Som de jogo, não de chamada (iPhone):** a gravação agora usa um motor de áudio separado, que

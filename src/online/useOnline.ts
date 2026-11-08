@@ -1,0 +1,551 @@
+// Modo online: um aparelho é o ANFITRIÃO (comanda a partida, guarda os áudios, dá as notas)
+// e os outros são CONVIDADOS (recebem o estado e mandam as próprias gravações).
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { checkMic, mono, sfx, toBuffer, unlockAudio } from '../audio/engine';
+import { BUILTIN_ID, loadSound, type LoadedSound, type SoundInfo } from '../audio/library';
+import { scoreAttempt } from '../audio/scorer';
+import { trimSilence } from '../audio/util';
+import {
+  addTake, ANCHORS, applyWheelState, buildRound, EMPTY_SCORE, endRoundState, makePlan, newGame, patchTake,
+  pickAnchors, revealState, validateStart,
+} from '../game/engine';
+import { EFFECT_NAMES, newPlayer, SLOTS, shuffle, type GameState, type Player, type SlotId } from '../game/model';
+import { loadRecent, pushRecent } from '../game/storage';
+import type { GameApi } from '../game/useGame';
+import { decodeAudio, encodeTake, encodeTarget, type NetAudio } from './codec';
+import { cleanCode, GuestNet, HostNet } from './net';
+
+export type OnlinePhase = 'lobby' | 'draw' | 'create' | 'play' | 'reveal' | 'roundEnd' | 'wheel' | 'final';
+export type RecMode = 'together' | 'turns';
+export interface Seat extends Player { clientId: string; online: boolean }
+export interface SoundMeta { name: string; emoji?: string; image?: string | null }
+export interface Me { name: string; emoji: string }
+
+/** Estado que o anfitrião replica para todos. */
+export interface Shared {
+  code: string;
+  hostId: string;
+  phase: OnlinePhase;
+  recMode: RecMode;
+  seats: Seat[];
+  game: GameState | null;
+  active: string[];
+  submitted: string[];
+  decoys: SoundMeta[];
+  soundSeq: number;
+  note: string | null;
+  waitingSince: number;
+}
+
+const MAX_SEATS = 10;
+const ME_KEY = 'imita.me.v1';
+const CLIENT_KEY = 'imita.client.v1';
+
+const store = {
+  get(k: string) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k: string, v: string) { try { localStorage.setItem(k, v); } catch { /* ok */ } },
+};
+
+export function loadMe(fallback?: Player): Me {
+  try {
+    const m = JSON.parse(store.get(ME_KEY) || 'null');
+    if (m?.name) return m;
+  } catch { /* ok */ }
+  return { name: fallback?.name || 'Jogador', emoji: fallback?.emoji || '🦊' };
+}
+export const saveMe = (m: Me) => store.set(ME_KEY, JSON.stringify(m));
+
+/** Identifica esta aba (sobrevive a recarregar a página, não é dividido entre abas). */
+function clientId(): string {
+  let id: string | null = null;
+  try { id = sessionStorage.getItem(CLIENT_KEY); } catch { /* ok */ }
+  if (!id) {
+    id = Math.random().toString(36).slice(2, 12);
+    try { sessionStorage.setItem(CLIENT_KEY, id); } catch { /* ok */ }
+  }
+  return id;
+}
+
+/** Tira os áudios do estado antes de mandar pela rede. */
+function strip(g: GameState): GameState {
+  const meta = (s: SoundInfo | null): SoundInfo | null => (s ? { id: s.id, name: s.name, packId: s.packId, emoji: s.emoji, duration: s.duration, image: null, src: { kind: 'synth', synth: '' } } : null);
+  const takes = Object.fromEntries(Object.entries(g.round.takes).map(([k, t]) => [k, { ...t, samples: undefined }]));
+  return JSON.parse(JSON.stringify({ ...g, plan: g.plan.map(meta), round: { ...g.round, sound: meta(g.round.sound), takes } }));
+}
+
+async function imageDataUrl(src?: string | null): Promise<string | null> {
+  if (!src) return null;
+  try {
+    const blob = await (await fetch(src)).blob();
+    if (blob.size > 120_000) return null;
+    return await new Promise((res) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result as string);
+      r.onerror = () => res(null);
+      r.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+}
+
+export function useOnline(local: GameApi) {
+  const [role, setRole] = useState<'host' | 'guest' | null>(null);
+  const [shared, setShared] = useState<Shared | null>(null);
+  const [myId, setMyId] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [ended, setEnded] = useState<string | null>(null);
+  const [stage, setStage] = useState<'listen' | 'record'>('listen');
+  const [hostGame, setHostGame] = useState<GameState | null>(null);
+  const [takeAudio, setTakeAudio] = useState<Record<string, { samples: Float32Array; sr: number }>>({});
+  const [targetMeta, setTargetMeta] = useState<SoundMeta | null>(null);
+
+  const targetRef = useRef<Promise<LoadedSound> | null>(null);
+  const hostNet = useRef<HostNet | null>(null);
+  const guestNet = useRef<GuestNet | null>(null);
+  const sharedRef = useRef<Shared | null>(null);
+  const gameRef = useRef<GameState | null>(null);
+  const seatByConn = useRef(new Map<string, string>());
+  const anchorPool = useRef<SoundInfo[]>([]);
+  const anchorLoads = useRef<Promise<unknown>[]>([]);
+  const scoring = useRef(new Map<string, Promise<void>>());
+  const takesNet = useRef<Record<string, NetAudio>>({});
+  const targetMsg = useRef<Record<string, unknown> | null>(null);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const localRef = useRef(local);
+  localRef.current = local;
+
+  // ---------------------------------------------------------------- anfitrião
+
+  const publish = useCallback((patch: Partial<Shared> = {}) => {
+    const cur = sharedRef.current;
+    if (!cur) return;
+    const g = gameRef.current;
+    const s: Shared = { ...cur, ...patch, game: g ? strip(g) : null };
+    sharedRef.current = s;
+    setShared(s);
+    setHostGame(g ? { ...g } : null);
+    hostNet.current?.broadcast({ t: 'state', shared: s });
+  }, []);
+
+  const seatOnline = (pid: string) => sharedRef.current?.seats.find((x) => x.id === pid)?.online !== false;
+
+  const distributeTarget = useCallback(async (loaded: LoadedSound, info: SoundInfo, seq: number) => {
+    const audio = encodeTarget(mono(loaded.buffer), loaded.buffer.sampleRate);
+    const meta: SoundMeta = { name: info.name, emoji: info.emoji, image: await imageDataUrl(info.image) };
+    targetMsg.current = { t: 'target', seq, meta, audio };
+    setTargetMeta(meta);
+    hostNet.current?.broadcast(targetMsg.current as { t: string });
+  }, []);
+
+  const startReveal = useCallback(() => {
+    if (!gameRef.current) return;
+    gameRef.current = revealState(gameRef.current, -1);
+    const items = Object.entries(takesNet.current).map(([pid, audio]) => ({ pid, audio }));
+    hostNet.current?.broadcast({ t: 'takes', round: gameRef.current.round.index, items });
+    sfx('reveal');
+    publish({ phase: 'reveal' });
+  }, [publish]);
+
+  const checkComplete = useCallback(() => {
+    const s = sharedRef.current;
+    const g = gameRef.current;
+    if (!s || !g || s.phase !== 'play') return;
+    const missing = g.round.order.filter((p) => !s.submitted.includes(p) && seatOnline(p));
+    if (s.recMode === 'turns') {
+      const current = s.active[0];
+      if (current && (s.submitted.includes(current) || !seatOnline(current))) {
+        const next = missing[0];
+        if (next) { publish({ active: [next], waitingSince: Date.now() }); return; }
+      } else if (current) return;
+    }
+    if (missing.length) return;
+    const round = g.round.index;
+    Promise.all([...scoring.current.values()]).then(() => {
+      if (gameRef.current?.round.index === round && sharedRef.current?.phase === 'play') startReveal();
+    });
+  }, [publish, startReveal]);
+
+  const receiveTake = useCallback((pid: string, samples: Float32Array, sr: number, net: NetAudio) => {
+    const s = sharedRef.current;
+    const g0 = gameRef.current;
+    if (!s || !g0 || s.phase !== 'play' || s.submitted.includes(pid) || !g0.round.order.includes(pid)) return;
+    gameRef.current = addTake(g0, pid, samples, sr).g;
+    takesNet.current[pid] = net;
+    const r = gameRef.current.round;
+    const difficulty = gameRef.current.settings.difficulty;
+    const job = (async () => {
+      try {
+        const t = await targetRef.current!;
+        await Promise.race([Promise.all(anchorLoads.current), new Promise((res) => setTimeout(res, 5000))]);
+        const score = await scoreAttempt(t.info.id, r.anchorIds, samples, sr, difficulty);
+        if (gameRef.current?.round.index === r.index) gameRef.current = patchTake(gameRef.current, pid, { score });
+      } catch (e) {
+        if (gameRef.current?.round.index === r.index) gameRef.current = patchTake(gameRef.current, pid, { score: EMPTY_SCORE, error: (e as Error).message });
+      }
+      publish();
+    })();
+    scoring.current.set(pid, job);
+    publish({ submitted: [...s.submitted, pid] });
+    checkComplete();
+  }, [publish, checkComplete]);
+
+  const startPlay = useCallback(() => {
+    const g = gameRef.current;
+    const s = sharedRef.current;
+    if (!g || !s) return;
+    scoring.current.clear();
+    takesNet.current = {};
+    const online = g.round.order.filter(seatOnline);
+    const active = s.recMode === 'together' ? online : online.slice(0, 1);
+    publish({ phase: 'play', active, submitted: [], waitingSince: Date.now() });
+    if (!online.length) startReveal();
+  }, [publish, startReveal]);
+
+  const beginRound = useCallback((idx: number) => {
+    const g = gameRef.current!;
+    const sound = g.plan[idx];
+    const anchors = pickAnchors(anchorPool.current, sound?.id);
+    anchorLoads.current = anchors.map((a) => loadSound(a).catch(() => null));
+    gameRef.current = { ...g, round: buildRound(g, idx, anchors) };
+    const seq = (sharedRef.current?.soundSeq || 0) + 1;
+    setTakeAudio({});
+    if (sound) {
+      targetRef.current = loadSound(sound);
+      const decoys = shuffle(anchorPool.current.filter((x) => x.id !== sound.id)).slice(0, 14).map((x) => ({ name: x.name, emoji: x.emoji }));
+      publish({ phase: 'draw', decoys, soundSeq: seq, active: [], submitted: [] });
+      const t0 = Date.now();
+      targetRef.current.then(async (loaded) => {
+        await distributeTarget(loaded, sound, seq);
+        timers.current.push(setTimeout(() => startPlay(), Math.max(0, 3400 - (Date.now() - t0))));
+      }).catch(() => {
+        // Som com problema: pula para a próxima rodada
+        setError(`Não deu para carregar "${sound.name}". Pulando a rodada.`);
+        timers.current.push(setTimeout(() => {
+          if (idx + 1 < g.plan.length) beginRound(idx + 1);
+          else publish({ phase: 'final' });
+        }, 1200));
+      });
+    } else {
+      targetRef.current = null;
+      setTargetMeta(null);
+      publish({ phase: 'create', soundSeq: seq, active: [gameRef.current.round.creatorId!], submitted: [] });
+    }
+  }, [publish, distributeTarget, startPlay]);
+
+  const receiveChallenge = useCallback((pid: string, raw: Float32Array, sr: number, name?: string) => {
+    const g = gameRef.current;
+    const s = sharedRef.current;
+    if (!g || !s || s.phase !== 'create' || g.round.creatorId !== pid) return;
+    const creator = g.players.find((p) => p.id === pid);
+    const samples = trimSilence(raw, sr);
+    const info: SoundInfo = { id: `online/${Date.now()}`, name: (name || '').trim() || `Desafio de ${creator?.name}`, packId: 'temp', emoji: '🎙️', src: { kind: 'temp', samples, sr } };
+    gameRef.current = { ...g, round: { ...g.round, sound: info } };
+    targetRef.current = loadSound(info);
+    targetRef.current.then(async (loaded) => {
+      await distributeTarget(loaded, info, s.soundSeq);
+      startPlay();
+    });
+  }, [distributeTarget, startPlay]);
+
+  const nextReveal = useCallback(() => {
+    const g = gameRef.current;
+    if (!g || sharedRef.current?.phase !== 'reveal') return;
+    if (g.round.revealIdx + 1 >= g.round.revealOrder.length) {
+      gameRef.current = endRoundState(g);
+      publish({ phase: 'roundEnd' });
+    } else {
+      gameRef.current = { ...g, round: { ...g.round, revealIdx: g.round.revealIdx + 1 } };
+      publish();
+    }
+  }, [publish]);
+
+  const continueAfterRound = useCallback(() => {
+    const g = gameRef.current;
+    if (!g) return;
+    const nextIdx = g.round.index + 1;
+    if (nextIdx >= g.plan.length) { sfx('win'); publish({ phase: 'final', note: null }); }
+    else if (g.settings.wheel && g.round.spinnerId && seatOnline(g.round.spinnerId)) publish({ phase: 'wheel', note: null });
+    else { publish({ note: null }); beginRound(nextIdx); }
+  }, [publish, beginRound]);
+
+  const receiveWheel = useCallback((pid: string, slotId: SlotId, targetId?: string) => {
+    const g = gameRef.current;
+    if (!g || sharedRef.current?.phase !== 'wheel' || g.round.spinnerId !== pid) return;
+    gameRef.current = applyWheelState(g, slotId, targetId);
+    const slot = SLOTS.find((x) => x.id === slotId);
+    const who = (id?: string) => g.players.find((p) => p.id === id)?.name || '';
+    let note = '';
+    if (slot?.kind === 'sabotage') note = `😈 ${who(pid)} sabotou ${who(targetId)}: ${EFFECT_NAMES[slot.id as keyof typeof EFFECT_NAMES]}`;
+    else if (slot?.kind === 'swap') note = `🔄 ${who(pid)} vai trocar a gravação com ${who(targetId)}`;
+    else if (slot) note = `${slot.emoji} ${who(pid)} ganhou ${slot.title}`;
+    publish({ note });
+    beginRound(g.round.index + 1);
+  }, [publish, beginRound]);
+
+  const hostStart = useCallback(async () => {
+    const s = sharedRef.current;
+    const L = localRef.current;
+    if (!s) return;
+    setError(null);
+    const pool = L.packs.filter((p) => L.settings.packIds.includes(p.id)).flatMap((p) => p.sounds);
+    const players: Player[] = s.seats.map(({ id, name, emoji, color, team }) => ({ id, name, emoji, color, team }));
+    const invalid = validateStart(L.settings, players, pool.length, true);
+    if (invalid) return setError(invalid);
+    await unlockAudio();
+    const micErr = await checkMic();
+    if (micErr) return setError(micErr);
+    const plan = makePlan(L.settings, players, pool, new Set(loadRecent()));
+    pushRecent(plan.filter((x): x is SoundInfo => !!x).map((x) => x.id));
+    const builtin = L.packs.find((p) => p.id === BUILTIN_ID)?.sounds || [];
+    anchorPool.current = pool.length >= ANCHORS + 1 ? pool : [...pool, ...builtin];
+    gameRef.current = newGame(L.settings, players, plan);
+    beginRound(0);
+  }, [beginRound]);
+
+  const onHostMessage = useCallback((connId: string, msg: Record<string, unknown>) => {
+    const s = sharedRef.current;
+    if (!s) return;
+    const net = hostNet.current!;
+    if (msg.t === 'hello') {
+      const cid = String(msg.clientId || '');
+      let seat = s.seats.find((x) => x.clientId === cid);
+      if (!seat) {
+        if (s.phase !== 'lobby') { net.send(connId, { t: 'reject', reason: 'A partida já começou. Espere a próxima.' }); return; }
+        if (s.seats.length >= MAX_SEATS) { net.send(connId, { t: 'reject', reason: 'A sala está cheia.' }); return; }
+        const base = newPlayer(s.seats, String(msg.name || 'Jogador').slice(0, 14));
+        const emoji = s.seats.some((x) => x.emoji === msg.emoji) ? base.emoji : String(msg.emoji || base.emoji);
+        seat = { ...base, emoji, clientId: cid, online: true };
+        publish({ seats: [...s.seats, seat] });
+      } else {
+        publish({ seats: s.seats.map((x) => (x.id === seat!.id ? { ...x, online: true } : x)) });
+      }
+      seatByConn.current.set(connId, seat.id);
+      net.send(connId, { t: 'welcome', you: seat.id, shared: sharedRef.current as unknown as Record<string, unknown> });
+      if (targetMsg.current && sharedRef.current?.phase !== 'lobby') net.send(connId, targetMsg.current as { t: string });
+      if (sharedRef.current?.phase === 'reveal' && gameRef.current) {
+        const items = Object.entries(takesNet.current).map(([pid, audio]) => ({ pid, audio }));
+        net.send(connId, { t: 'takes', round: gameRef.current.round.index, items });
+      }
+      sfx('pop');
+      return;
+    }
+    const pid = seatByConn.current.get(connId);
+    if (!pid) return;
+    const round = gameRef.current?.round.index;
+    if (msg.t === 'take' && msg.round === round) {
+      const audio = msg.audio as NetAudio;
+      receiveTake(pid, decodeAudio(audio), audio.sr, audio);
+    } else if (msg.t === 'challenge' && msg.round === round) {
+      const audio = msg.audio as NetAudio;
+      receiveChallenge(pid, decodeAudio(audio), audio.sr, msg.name as string | undefined);
+    } else if (msg.t === 'wheel' && msg.round === round) {
+      receiveWheel(pid, msg.slot as SlotId, msg.target as string | undefined);
+    }
+  }, [publish, receiveTake, receiveChallenge, receiveWheel]);
+
+  const onHostLeave = useCallback((connId: string) => {
+    const pid = seatByConn.current.get(connId);
+    seatByConn.current.delete(connId);
+    const s = sharedRef.current;
+    if (!pid || !s) return;
+    if (s.phase === 'lobby') publish({ seats: s.seats.filter((x) => x.id !== pid) });
+    else {
+      publish({ seats: s.seats.map((x) => (x.id === pid ? { ...x, online: false } : x)) });
+      if (s.phase === 'play') checkComplete();
+      if (s.phase === 'wheel' && gameRef.current?.round.spinnerId === pid) continueSkipWheel();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publish, checkComplete]);
+
+  const continueSkipWheel = () => {
+    const g = gameRef.current;
+    if (!g) return;
+    publish({ note: null });
+    beginRound(g.round.index + 1);
+  };
+
+  const createRoom = useCallback(async (me: Me) => {
+    setError(null);
+    setEnded(null);
+    saveMe(me);
+    setConnecting('Criando a sala…');
+    const net = new HostNet();
+    try {
+      const code = await net.open();
+      hostNet.current = net;
+      const hostSeat: Seat = { ...newPlayer([], me.name), emoji: me.emoji, clientId: clientId(), online: true };
+      const s: Shared = {
+        code, hostId: hostSeat.id, phase: 'lobby', recMode: 'together', seats: [hostSeat], game: null,
+        active: [], submitted: [], decoys: [], soundSeq: 0, note: null, waitingSince: 0,
+      };
+      sharedRef.current = s;
+      setShared(s);
+      setMyId(hostSeat.id);
+      setRole('host');
+      net.onMessage = (id, m) => onHostMessage(id, m);
+      net.onLeave = (id) => onHostLeave(id);
+      net.onError = (m) => setError(m);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setConnecting(null);
+    }
+  }, [onHostMessage, onHostLeave]);
+
+  // Mantém os callbacks do anfitrião atualizados
+  useEffect(() => {
+    if (!hostNet.current) return;
+    hostNet.current.onMessage = (id, m) => onHostMessage(id, m);
+    hostNet.current.onLeave = (id) => onHostLeave(id);
+  }, [onHostMessage, onHostLeave]);
+
+  // ---------------------------------------------------------------- convidado
+
+  const joinRoom = useCallback(async (code: string, me: Me) => {
+    setError(null);
+    setEnded(null);
+    saveMe(me);
+    const c = cleanCode(code);
+    if (c.length !== 4) { setError('O código da sala tem 4 letras.'); return; }
+    setConnecting(`Entrando na sala ${c}…`);
+    const net = new GuestNet();
+    net.onMessage = (m) => {
+      if (m.t === 'welcome') {
+        setMyId(m.you as string);
+        sharedRef.current = m.shared as unknown as Shared;
+        setShared(m.shared as unknown as Shared);
+        setRole('guest');
+        setConnecting(null);
+      } else if (m.t === 'state') {
+        sharedRef.current = m.shared as unknown as Shared;
+        setShared(m.shared as unknown as Shared);
+      } else if (m.t === 'target') {
+        const audio = m.audio as NetAudio;
+        const meta = m.meta as SoundMeta;
+        const samples = decodeAudio(audio);
+        const info: SoundInfo = { id: `net/${m.seq}`, name: meta.name, packId: 'online', emoji: meta.emoji, image: meta.image, src: { kind: 'temp', samples, sr: audio.sr } };
+        targetRef.current = Promise.resolve({ info, buffer: toBuffer(samples, audio.sr) });
+        setTargetMeta(meta);
+      } else if (m.t === 'takes') {
+        const items = m.items as { pid: string; audio: NetAudio }[];
+        const map: Record<string, { samples: Float32Array; sr: number }> = {};
+        for (const it of items) map[it.pid] = { samples: decodeAudio(it.audio), sr: it.audio.sr };
+        setTakeAudio(map);
+      } else if (m.t === 'reject') {
+        setConnecting(null);
+        setError(String(m.reason || 'Não deu para entrar.'));
+        net.close();
+      } else if (m.t === 'closed') {
+        setEnded('O anfitrião encerrou a sala.');
+      }
+    };
+    net.onClose = () => setEnded((e) => e || 'A conexão com a sala caiu.');
+    try {
+      await net.join(c);
+      guestNet.current = net;
+      net.send({ t: 'hello', clientId: clientId(), name: me.name, emoji: me.emoji });
+    } catch (e) {
+      setConnecting(null);
+      setError((e as Error).message);
+    }
+  }, []);
+
+  // ---------------------------------------------------------------- ações de qualquer aparelho
+
+  const isHost = role === 'host';
+  const roundIdx = shared?.game?.round.index ?? -1;
+
+  const submitTake = useCallback((samples: Float32Array, sr: number) => {
+    if (!myId) return;
+    sfx('pop');
+    if (isHost) receiveTake(myId, samples, sr, encodeTake(samples, sr));
+    else guestNet.current?.send({ t: 'take', round: roundIdx, audio: encodeTake(samples, sr) as unknown as Record<string, unknown> });
+  }, [myId, isHost, receiveTake, roundIdx]);
+
+  const submitChallenge = useCallback((samples: Float32Array, sr: number, opts: { name?: string }) => {
+    if (!myId) return;
+    if (isHost) receiveChallenge(myId, samples, sr, opts.name);
+    else guestNet.current?.send({ t: 'challenge', round: roundIdx, name: opts.name || '', audio: encodeTake(samples, sr) as unknown as Record<string, unknown> });
+  }, [myId, isHost, receiveChallenge, roundIdx]);
+
+  const sendWheel = useCallback((slot: SlotId, target?: string) => {
+    if (!myId) return;
+    if (isHost) receiveWheel(myId, slot, target);
+    else guestNet.current?.send({ t: 'wheel', round: roundIdx, slot, target: target ?? null });
+  }, [myId, isHost, receiveWheel, roundIdx]);
+
+  const setRecMode = useCallback((recMode: RecMode) => { if (isHost) publish({ recMode }); }, [isHost, publish]);
+
+  const toggleTeam = useCallback((pid: string) => {
+    const s = sharedRef.current;
+    if (!isHost || !s || s.phase !== 'lobby') return;
+    publish({ seats: s.seats.map((x) => (x.id === pid ? { ...x, team: x.team ? 0 : 1 } : x)) });
+  }, [isHost, publish]);
+
+  /** Anfitrião: segue a rodada sem quem não gravou. */
+  const skipMissing = useCallback(() => {
+    const s = sharedRef.current;
+    const g = gameRef.current;
+    if (!isHost || !s || !g || s.phase !== 'play') return;
+    const all = g.round.order;
+    publish({ submitted: [...new Set([...s.submitted, ...all])], active: [] });
+    Promise.all([...scoring.current.values()]).then(() => startReveal());
+  }, [isHost, publish, startReveal]);
+
+  const leave = useCallback(() => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+    hostNet.current?.close();
+    guestNet.current?.close();
+    hostNet.current = null;
+    guestNet.current = null;
+    sharedRef.current = null;
+    gameRef.current = null;
+    targetRef.current = null;
+    targetMsg.current = null;
+    seatByConn.current.clear();
+    setRole(null);
+    setShared(null);
+    setHostGame(null);
+    setMyId(null);
+    setTakeAudio({});
+    setTargetMeta(null);
+    setEnded(null);
+    setConnecting(null);
+  }, []);
+
+  useEffect(() => () => { hostNet.current?.close(); guestNet.current?.close(); }, []);
+
+  // Volta para "ouvir" a cada nova vez de gravar
+  const activeKey = shared ? `${shared.phase}-${roundIdx}-${shared.active.join(',')}` : '';
+  useEffect(() => { setStage('listen'); }, [activeKey]);
+
+  // ---------------------------------------------------------------- visão para as telas
+
+  /** Estado do jogo como as telas esperam (com os áudios das imitações e a imagem do som). */
+  let view: GameState | null = null;
+  if (shared?.game) {
+    const base = isHost && hostGame ? hostGame : shared.game;
+    const takes = isHost && hostGame ? base.round.takes : Object.fromEntries(Object.entries(base.round.takes).map(([k, t]) => [k, { ...t, samples: takeAudio[k]?.samples || new Float32Array(1), sr: takeAudio[k]?.sr || 22050 }]));
+    const sound = base.round.sound ? { ...base.round.sound, image: targetMeta?.image ?? base.round.sound.image, emoji: base.round.sound.emoji || targetMeta?.emoji } : null;
+    view = {
+      ...base,
+      players: shared.seats.map(({ id, name, emoji, color, team }) => ({ id, name, emoji, color, team })),
+      settings: { ...base.settings, micGain: local.settings.micGain, along: false },
+      round: { ...base.round, sound, takes },
+    };
+  }
+
+  const takesReady = !shared?.game || isHost || Object.keys(shared.game.round.takes).every((k) => takeAudio[k]);
+
+  return {
+    role, isHost, shared, myId, view, stage, setStage, connecting, error, setError, ended, targetMeta, takesReady,
+    getTarget: () => targetRef.current,
+    createRoom, joinRoom, leave, hostStart, setRecMode, toggleTeam, skipMissing,
+    nextReveal, continueAfterRound, submitTake, submitChallenge, sendWheel,
+  };
+}
+
+export type OnlineApi = ReturnType<typeof useOnline>;

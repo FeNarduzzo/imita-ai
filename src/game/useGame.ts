@@ -4,12 +4,11 @@ import { BUILTIN_ID, loadPacks, loadSound, saveCustom, type LoadedSound, type Pa
 import { scoreAttempt } from '../audio/scorer';
 import { trimSilence } from '../audio/util';
 import {
-  pointsFor, shuffle, SLOTS,
-  type GameState, type Phase, type Player, type RoundState, type Settings, type SlotId, type Take,
-} from './model';
+  addTake, ANCHORS, applyWheelState, buildRound, EMPTY_SCORE, endRoundState, makePlan, newGame, patchTake as patchTakeState,
+  pickAnchors, revealState, validateStart,
+} from './engine';
+import type { GameState, Phase, Player, Settings, SlotId, Take } from './model';
 import { loadPlayers, loadRecent, loadSettings, pushRecent, savePlayers, saveSettings } from './storage';
-
-const ANCHORS = 5;
 
 export function useGame() {
   const [phase, setPhase] = useState<Phase>('home');
@@ -76,17 +75,9 @@ export function useGame() {
   const beginRound = useCallback((idx: number) => {
     const g = gameRef.current!;
     const sound = g.plan[idx];
-    const ps = g.players;
-    const n = ps.length;
-    const creatorId = sound === null ? ps[idx % n].id : undefined;
-    const order = ps.map((_, k) => ps[(k + idx) % n].id).filter((id) => id !== creatorId);
-    const mystery = g.settings.mystery && sound !== null && idx > 0 && Math.random() < 0.25;
-    const anchors = shuffle(anchorPool.current.filter((s) => s.id !== sound?.id)).slice(0, ANCHORS);
+    const anchors = pickAnchors(anchorPool.current, sound?.id);
     anchorLoads.current = anchors.map((a) => loadSound(a).catch(() => null));
-    const round: RoundState = {
-      index: idx, sound, creatorId, mystery, order, turn: 0, takes: {},
-      anchorIds: anchors.map((a) => a.id), revealOrder: [], revealIdx: 0,
-    };
+    const round = buildRound(g, idx, anchors);
     update((s) => ({ ...s, round }));
     if (sound) {
       targetRef.current = loadSound(sound);
@@ -102,50 +93,21 @@ export function useGame() {
     setError(null);
     const s = settings;
     const ps = players;
-    const sel = packs.filter((p) => s.packIds.includes(p.id));
-    const pool = sel.flatMap((p) => p.sounds);
-    const solo = ps.length === 1;
-    if (!ps.length) return setError('Adicione pelo menos um jogador.');
-    if (s.source !== 'packs' && solo) return setError('No modo solo os desafios vêm dos pacotes. Mude “Quem cria o som” para “Pacotes”.');
-    if (s.source !== 'players' && !pool.length) return setError('Escolha pelo menos um pacote de som.');
-    if (s.mode === 'teams' && (ps.length < 2 || !ps.some((p) => p.team === 0) || !ps.some((p) => p.team === 1))) {
-      return setError('No modo Times, cada time precisa de pelo menos um jogador.');
-    }
+    const pool = packs.filter((p) => s.packIds.includes(p.id)).flatMap((p) => p.sounds);
+    const invalid = validateStart(s, ps, pool.length);
+    if (invalid) return setError(invalid);
     setBusy(true);
     await unlockAudio();
     const micErr = await checkMic();
     setBusy(false);
     if (micErr) return setError(micErr);
 
-    const recent = new Set(loadRecent());
-    const ordered = [...shuffle(pool.filter((x) => !recent.has(x.id))), ...shuffle(pool.filter((x) => recent.has(x.id)))];
-    const plan: (SoundInfo | null)[] = [];
-    let k = 0;
-    for (let r = 0; r < s.rounds; r++) {
-      const byPlayer = s.source === 'players' || (s.source === 'mixed' && r % 2 === 1);
-      if (byPlayer && ps.length >= 2) plan.push(null);
-      else plan.push(ordered[k++ % ordered.length]);
-    }
+    const plan = makePlan(s, ps, pool, new Set(loadRecent()));
     pushRecent(plan.filter((x): x is SoundInfo => !!x).map((x) => x.id));
     const builtin = packs.find((p) => p.id === BUILTIN_ID)?.sounds || [];
     anchorPool.current = pool.length >= ANCHORS + 1 ? pool : [...pool, ...builtin];
 
-    const zero = Object.fromEntries(ps.map((p) => [p.id, 0]));
-    const g: GameState = {
-      settings: { ...s, mode: solo ? 'classic' : s.mode },
-      players: ps.map((p) => ({ ...p })),
-      plan,
-      round: { index: 0, sound: null, mystery: false, order: [], turn: 0, takes: {}, anchorIds: [], revealOrder: [], revealIdx: 0 },
-      totals: { ...zero },
-      teamTotals: [0, 0],
-      pending: {},
-      streak: { ...zero },
-      bestStreak: { ...zero },
-      history: [],
-      best: null,
-      sabotaged: 0,
-      takes: 0,
-    };
+    const g = newGame(s, ps, plan);
     gameRef.current = g;
     setGame(g);
     beginRound(0);
@@ -172,25 +134,17 @@ export function useGame() {
   const toRecord = useCallback(() => setPhase('record'), []);
 
   const patchTake = useCallback((pid: string, patch: Partial<Take>) => {
-    update((s) => {
-      const t = s.round.takes[pid];
-      if (!t) return s;
-      const nt = { ...t, ...patch };
-      nt.points = pointsFor(nt);
-      return { ...s, round: { ...s.round, takes: { ...s.round.takes, [pid]: nt } } };
-    });
+    update((s) => patchTakeState(s, pid, patch));
   }, [update]);
 
   const submitTake = useCallback((samples: Float32Array, sr: number) => {
     const g = gameRef.current!;
     const r = g.round;
     const pid = r.order[r.turn];
-    const pend = g.pending[pid] || {};
-    const take: Take = { playerId: pid, samples, sr, score: null, sabotage: pend.sabotage, bonus: pend.bonus, mult: pend.mult, points: 0 };
-    const pending = { ...g.pending };
-    if (pend.swapWith) pending[pid] = { swapWith: pend.swapWith };
-    else delete pending[pid];
-    const next = update((s) => ({ ...s, pending, round: { ...s.round, takes: { ...s.round.takes, [pid]: take }, turn: s.round.turn + 1 } }))!;
+    const next = update((s) => {
+      const added = addTake(s, pid, samples, sr).g;
+      return { ...added, round: { ...added.round, turn: added.round.turn + 1 } };
+    })!;
 
     const target = targetRef.current;
     const anchorsReady = Promise.race([Promise.all(anchorLoads.current), new Promise((res) => setTimeout(res, 5000))]);
@@ -201,81 +155,20 @@ export function useGame() {
       const score = await scoreAttempt(t.info.id, r.anchorIds, samples, sr, g.settings.difficulty);
       patchTake(pid, { score });
     })().catch((e) => {
-      patchTake(pid, { error: (e as Error).message, score: { total: 0, content: 0, pitch: 0, rhythm: 0, usesPitch: false, silent: true, longBonus: 0, chart: { target: [], attempt: [] }, raw: { cost: 0, base: 0, rel: 0, pitchErr: 0, envCorr: 0, durRatio: 0, warp: 1 } } });
+      patchTake(pid, { error: (e as Error).message, score: EMPTY_SCORE });
     });
 
     setPhase(next.round.turn < next.round.order.length ? 'handoff' : 'allDone');
   }, [update, patchTake]);
 
   const startReveal = useCallback(() => {
-    const g = gameRef.current!;
-    const takes = { ...g.round.takes };
-    const pending = { ...g.pending };
-    for (const pid of g.round.order) {
-      const other = pending[pid]?.swapWith;
-      if (!other) continue;
-      const a = takes[pid];
-      const b = takes[other];
-      if (a && b) {
-        const swap = (x: Take, y: Take, owner: string): Take => {
-          const t: Take = { ...y, playerId: owner, swappedWith: x === a ? other : pid };
-          t.points = pointsFor(t);
-          return t;
-        };
-        takes[pid] = swap(a, b, pid);
-        takes[other] = swap(b, a, other);
-      }
-      const rest = { ...pending[pid] };
-      delete rest.swapWith;
-      if (Object.keys(rest).length) pending[pid] = rest;
-      else delete pending[pid];
-    }
-    const revealOrder = g.settings.order === 'random' ? shuffle(g.round.order) : g.round.order.slice();
-    update((s) => ({ ...s, pending, round: { ...s.round, takes, revealOrder, revealIdx: 0 } }));
+    update((s) => revealState(s, 0));
     sfx('reveal');
     setPhase('reveal');
   }, [update]);
 
   const endRound = useCallback(() => {
-    const g = gameRef.current!;
-    const r = g.round;
-    const pts: Record<string, number> = {};
-    for (const pid of r.order) pts[pid] = r.takes[pid]?.points ?? 0;
-    if (r.creatorId) {
-      const vals = r.order.map((p) => pts[p]);
-      pts[r.creatorId] = vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 0.5) : 0;
-    }
-    const max = Math.max(0, ...r.order.map((p) => pts[p]));
-    const winners = max > 0 ? r.order.filter((p) => pts[p] === max) : [];
-    const totals = { ...g.totals };
-    const streak = { ...g.streak };
-    const bestStreak = { ...g.bestStreak };
-    for (const p of g.players) {
-      totals[p.id] = (totals[p.id] || 0) + (pts[p.id] || 0);
-      if (winners.includes(p.id)) streak[p.id] = (streak[p.id] || 0) + 1;
-      else if (r.order.includes(p.id)) streak[p.id] = 0;
-      bestStreak[p.id] = Math.max(bestStreak[p.id] || 0, streak[p.id] || 0);
-    }
-    const teamTotals: [number, number] = [...g.teamTotals];
-    if (g.settings.mode === 'teams') {
-      for (const t of [0, 1] as const) {
-        const members = g.players.filter((p) => p.team === t && pts[p.id] !== undefined);
-        if (members.length) teamTotals[t] += Math.round(members.reduce((a, p) => a + pts[p.id], 0) / members.length);
-      }
-    }
-    let best = g.best;
-    for (const pid of r.order) {
-      if (!best || pts[pid] > best.points) best = { playerId: pid, points: pts[pid], soundName: r.sound?.name || '' };
-    }
-    const low = Math.min(...r.order.map((p) => pts[p]));
-    const losers = r.order.filter((p) => pts[p] === low);
-    const spinnerId = losers[Math.floor(Math.random() * losers.length)];
-    const sabotaged = g.sabotaged + r.order.filter((p) => r.takes[p]?.sabotage).length;
-    update((s) => ({
-      ...s, totals, streak, bestStreak, teamTotals, best, sabotaged, takes: s.takes + r.order.length,
-      history: [...s.history, { index: r.index, soundName: r.sound?.name || '', points: pts, winners }],
-      round: { ...s.round, spinnerId },
-    }));
+    update((s) => endRoundState(s));
     setPhase('roundEnd');
   }, [update]);
 
@@ -297,18 +190,7 @@ export function useGame() {
 
   const applyWheel = useCallback((slotId: SlotId, targetId?: string) => {
     const g = gameRef.current!;
-    const spinner = g.round.spinnerId!;
-    const slot = SLOTS.find((s) => s.id === slotId)!;
-    const pending = { ...g.pending };
-    const add = (pid: string, patch: object) => { pending[pid] = { ...(pending[pid] || {}), ...patch }; };
-    const solo = g.players.length === 1;
-    if (slot.kind === 'sabotage') {
-      const victim = solo ? spinner : targetId;
-      if (victim) add(victim, { sabotage: { effect: slot.id, by: spinner } });
-    } else if (slot.kind === 'bonus') add(spinner, { bonus: (pending[spinner]?.bonus || 0) + 15 });
-    else if (slot.kind === 'mult') add(spinner, { mult: 1.5 });
-    else if (slot.kind === 'swap' && targetId) add(spinner, { swapWith: targetId });
-    update((s) => ({ ...s, pending }));
+    update((s) => applyWheelState(s, slotId, targetId));
     beginRound(g.round.index + 1);
   }, [update, beginRound]);
 

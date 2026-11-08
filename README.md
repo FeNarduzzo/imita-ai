@@ -24,6 +24,18 @@ O site público vem só com os sons nativos. Para jogar com os pacotes da Oficin
 
 Também dá para importar uma pasta da Oficina zipada (`theme.json` + `.wav`) ou áudios soltos (mp3, wav, m4a).
 
+## Jogar online
+
+Cada um joga no próprio celular (ou computador):
+
+1. Uma pessoa toca em **Jogar online → Criar sala**. Aparecem um código de 4 letras e um QR code.
+2. Os outros abrem o Imita Aí!, tocam em **Jogar online** e digitam o código (ou abrem o link / leem o QR).
+3. O anfitrião escolhe a gravação: **Todos juntos** (cada um num lugar) ou **Um de cada vez** (todos na
+   mesma sala, para as vozes não se misturarem) e toca em **Começar**.
+
+As regras, rodadas e pacotes vêm da tela inicial do anfitrião. A conexão é direta entre os aparelhos
+(WebRTC/PeerJS): funciona melhor no mesmo Wi-Fi, mas também pela internet.
+
 ## Desenvolvimento
 
 ```bash

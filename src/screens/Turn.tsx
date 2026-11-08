@@ -29,13 +29,17 @@ function SoundArt({ s, mystery, size = 132 }: { s: SoundInfo | null; mystery: bo
 
 // ---------------------------------------------------------------- sorteio
 
-export function Draw({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit: () => void }) {
+type ReelItem = { name: string; emoji?: string; image?: string | null } | null;
+
+export function Draw({ api, g, onQuit, decoys: given, auto }: { api: GameApi; g: GameState; onQuit: () => void; decoys?: ReelItem[]; auto?: boolean }) {
   const r = g.round;
-  const items = useMemo(() => {
+  const items = useMemo<ReelItem[]>(() => {
+    if (given) return [...given.slice(0, 14), r.sound];
     const pool = api.packs.filter((p) => g.settings.packIds.includes(p.id)).flatMap((p) => p.sounds);
     const decoys = shuffle(pool.filter((x) => x.id !== r.sound?.id)).slice(0, 14);
     return [...decoys, r.sound];
-  }, [api.packs, g.settings.packIds, r.sound]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api.packs, g.settings.packIds, r.sound?.id]);
   const [go, setGo] = useState(false);
   const [landed, setLanded] = useState(false);
 
@@ -75,7 +79,11 @@ export function Draw({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit: (
         </div>
         {landed && r.mystery && <p className="muted" style={{ margin: 0 }}>O nome só aparece na revelação. Boa sorte!</p>}
       </div>
-      <button className="btn big" disabled={!landed} onClick={() => { sfx('pop'); api.afterDraw(); }}>Bora!</button>
+      {auto ? (
+        <div className="small muted" style={{ textAlign: 'center', minHeight: 64, display: 'grid', placeItems: 'center' }}>Preparem-se: todo mundo ouve no próprio celular…</div>
+      ) : (
+        <button className="btn big" disabled={!landed} onClick={() => { sfx('pop'); api.afterDraw(); }}>Bora!</button>
+      )}
     </div>
   );
 }

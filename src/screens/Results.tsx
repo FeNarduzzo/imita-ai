@@ -13,9 +13,11 @@ const byId = (g: GameState, id: string) => g.players.find((p) => p.id === id) as
 
 // ---------------------------------------------------------------- revelação
 
-export function Reveal({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit: () => void }) {
+export function Reveal({ api, g, onQuit, online }: { api: GameApi; g: GameState; onQuit: () => void; online?: { host: boolean } }) {
   const r = g.round;
-  const [step, setStep] = useState<'original' | 'take'>('original');
+  const [localStep, setStep] = useState<'original' | 'take'>('original');
+  const step = online ? (r.revealIdx < 0 ? 'original' : 'take') : localStep;
+  const guestWait = !!online && !online.host;
   const [target, setTarget] = useState<LoadedSound | null>(null);
   const [showScore, setShowScore] = useState(false);
   const player = usePlayer();
@@ -85,7 +87,9 @@ export function Reveal({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
             {player.playing ? '🔊' : '▶'}
           </button>
         </div>
-        <button className="btn big pink" onClick={() => { player.stop(); setStep('take'); }}>Ouvir as imitações →</button>
+        <button className="btn big pink" disabled={guestWait} onClick={() => { player.stop(); if (online) api.nextReveal(); else setStep('take'); }}>
+          {guestWait ? 'O anfitrião comanda a revelação…' : 'Ouvir as imitações →'}
+        </button>
       </div>
     );
   }
@@ -147,7 +151,7 @@ export function Reveal({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
       <div className="row">
         <button className="btn ghost sm" disabled={!target} onClick={() => target && player.start(target.buffer)}>▶ Original</button>
         <button className="btn ghost sm" disabled={!buffer} onClick={() => buffer && player.start(buffer)}>▶ De novo</button>
-        <button className="btn pink grow" disabled={!showScore} onClick={() => { player.stop(); api.nextReveal(); }}>{last ? 'Ver ranking' : 'Próximo →'}</button>
+        <button className="btn pink grow" disabled={!showScore || guestWait} onClick={() => { player.stop(); api.nextReveal(); }}>{guestWait ? 'Aguarde…' : last ? 'Ver ranking' : 'Próximo →'}</button>
       </div>
     </div>
   );
@@ -167,7 +171,7 @@ function Bar({ label, v, color }: { label: string; v: number; color: string }) {
 
 // ---------------------------------------------------------------- fim da rodada
 
-export function RoundEnd({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit: () => void }) {
+export function RoundEnd({ api, g, onQuit, readOnly }: { api: GameApi; g: GameState; onQuit: () => void; readOnly?: boolean }) {
   const h = g.history[g.history.length - 1];
   const last = g.round.index + 1 >= g.plan.length;
   const sorted = [...g.players].sort((a, b) => (g.totals[b.id] || 0) - (g.totals[a.id] || 0));
@@ -200,8 +204,8 @@ export function RoundEnd({ api, g, onQuit }: { api: GameApi; g: GameState; onQui
         })}
       </div>
       <div className="grow" />
-      <button className="btn big pink" onClick={() => { sfx('pop'); api.continueAfterRound(); }}>
-        {last ? 'Resultado final 🏆' : g.settings.wheel ? 'Roleta! 🎡' : 'Próxima rodada →'}
+      <button className="btn big pink" disabled={readOnly} onClick={() => { sfx('pop'); api.continueAfterRound(); }}>
+        {readOnly ? 'Aguardando o anfitrião…' : last ? 'Resultado final 🏆' : g.settings.wheel ? 'Roleta! 🎡' : 'Próxima rodada →'}
       </button>
     </div>
   );
@@ -336,7 +340,7 @@ export function Wheel({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit: 
 
 // ---------------------------------------------------------------- final
 
-export function Final({ api, g }: { api: GameApi; g: GameState }) {
+export function Final({ api, g, online }: { api: GameApi; g: GameState; online?: { host: boolean } }) {
   const sorted = [...g.players].sort((a, b) => (g.totals[b.id] || 0) - (g.totals[a.id] || 0));
   const podium = [sorted[1], sorted[0], sorted[2]];
   const heights = [96, 140, 70];
@@ -384,8 +388,8 @@ export function Final({ api, g }: { api: GameApi; g: GameState }) {
       </div>
       <div className="grow" />
       <div className="row">
-        <button className="btn ghost grow" onClick={api.toMenu}>Menu</button>
-        <button className="btn pink grow" onClick={() => { sfx('go'); api.startGame(); }}>Jogar de novo</button>
+        <button className="btn ghost grow" onClick={api.toMenu}>{online ? (online.host ? 'Encerrar sala' : 'Sair da sala') : 'Menu'}</button>
+        {(!online || online.host) && <button className="btn pink grow" onClick={() => { sfx('go'); api.startGame(); }}>Jogar de novo</button>}
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import { Avatar, Logo, Seg, Sheet, Toggle, usePlayer } from '../components/ui';
 import { EMOJIS, MAX_PLAYERS, newPlayer, TEAMS, type Player } from '../game/model';
 import type { GameApi } from '../game/useGame';
 
-export function Home({ api }: { api: GameApi }) {
+export function Home({ api, onOnline }: { api: GameApi; onOnline: () => void }) {
   const { settings: s, setSettings, players, setPlayers, packs } = api;
   const [query, setQuery] = useState('');
   const [preview, setPreview] = useState<PackInfo | null>(null);
@@ -204,6 +204,7 @@ export function Home({ api }: { api: GameApi }) {
         <button className="btn big pink" disabled={api.busy || !api.packsLoaded} onClick={() => { sfx('go'); api.startGame(); }}>
           {api.busy ? 'Preparando…' : 'COMEÇAR'}
         </button>
+        <button className="btn ghost full" onClick={() => { sfx('click'); onOnline(); }}>🌐 Jogar online · cada um no seu celular</button>
         <div className="small faint" style={{ textAlign: 'center' }}>
           {s.rounds} rodadas · {players.length} {players.length === 1 ? 'jogador' : 'jogadores'} · {selected.length} {selected.length === 1 ? 'pacote' : 'pacotes'} · v{__APP_VERSION__}
         </div>
