@@ -178,6 +178,12 @@ export function useAuth() {
     signedOut();
   }, [signedOut]);
 
+  const changePassword = useCallback(async (password: string) => {
+    if (password.length < 8) throw new Error('A senha precisa ter pelo menos 8 caracteres.');
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) throw new Error(friendlyError(error));
+  }, []);
+
   const refresh = useCallback(async () => {
     const m = await rpc<Me | null>('me');
     if (m) { writeMe(m); setMe(m); }
@@ -189,7 +195,7 @@ export function useAuth() {
     setWarnings((w) => w.filter((x) => x.id !== id));
   }, []);
 
-  return { status, me, block, warnings, offline, signIn, signUp, signOut, deleteAccount, refresh, ackWarning };
+  return { status, me, block, warnings, offline, signIn, signUp, signOut, deleteAccount, changePassword, refresh, ackWarning };
 }
 
 export type AuthApi = ReturnType<typeof useAuth>;

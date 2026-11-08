@@ -158,12 +158,90 @@ function writeAll(w: Record<string, Wallet>) {
   try { localStorage.setItem(WALLET_KEY, JSON.stringify(w)); } catch { /* ok */ }
 }
 
+// A carteira de quem está logado vive no servidor (Supabase): compras e moedas passam por lá.
+// Os outros jogadores do aparelho (modo passa-o-celular) continuam com carteira local.
+// As funções abaixo são síncronas: a tela muda na hora e o servidor confirma em seguida
+// (o saldo oficial é sempre o que o servidor devolve).
+export interface AccountBridge {
+  /** Jogador do aparelho que é a conta logada. */
+  pid: string;
+  /** Soma/subtrai moedas no servidor; devolve o saldo oficial. `key` evita contar duas vezes. */
+  addCoins(delta: number, reason: string, key: string): Promise<number>;
+  /** Compra no servidor; devolve o saldo oficial. */
+  buy(itemId: string): Promise<number>;
+}
+
+let account: { bridge: AccountBridge; wallet: Wallet } | null = null;
+const listeners = new Set<(w: Wallet) => void>();
+const errorListeners = new Set<(msg: string) => void>();
+const PENDING_KEY = 'imita.pending-coins.v1';
+type Pending = { delta: number; reason: string; key: string };
+
+const emit = () => { if (account) listeners.forEach((f) => f(account!.wallet)); };
+/** Avisa quando o saldo da conta muda (para a tela acompanhar). */
+export function onWalletChange(f: (w: Wallet) => void) { listeners.add(f); return () => { listeners.delete(f); }; }
+/** Avisa quando o servidor recusa algo (ex.: compra sem moedas suficientes). */
+export function onWalletError(f: (msg: string) => void) { errorListeners.add(f); return () => { errorListeners.delete(f); }; }
+
+const readPending = (): Pending[] => { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch { return []; } };
+const writePending = (p: Pending[]) => { try { localStorage.setItem(PENDING_KEY, JSON.stringify(p.slice(-200))); } catch { /* ok */ } };
+const isOffline = (e: unknown) => /internet|conexão|fetch|network/i.test(String((e as Error)?.message ?? e));
+
+/** Manda ao servidor as moedas ganhas sem internet (o servidor ignora repetidas pela `key`). */
+async function flushPending() {
+  if (!account) return;
+  const list = readPending();
+  if (!list.length) return;
+  const left: Pending[] = [];
+  for (const p of list) {
+    try {
+      const coins = await account.bridge.addCoins(p.delta, p.reason, p.key);
+      account.wallet = { ...account.wallet, coins };
+    } catch (e) {
+      if (isOffline(e)) left.push(p);
+    }
+  }
+  writePending(left);
+  emit();
+}
+
+/** Liga (ou desliga, com null) a carteira do servidor para o jogador que é a conta logada. */
+export function bindAccount(bridge: AccountBridge | null, wallet?: Wallet) {
+  account = bridge && wallet ? { bridge, wallet: { coins: wallet.coins, owned: [...wallet.owned] } } : null;
+  emit();
+  if (account) flushPending().catch(() => {});
+}
+/** Atualiza o saldo/itens da conta com o que veio do servidor. */
+export function setAccountWallet(w: Wallet) {
+  if (!account) return;
+  account.wallet = { coins: w.coins, owned: [...w.owned] };
+  emit();
+}
+export const isAccount = (pid: string) => !!account && account.bridge.pid === pid;
+
 export function getWallet(pid: string): Wallet {
+  if (account && account.bridge.pid === pid) return account.wallet;
   return readAll()[pid] || { coins: START_COINS, owned: [] };
 }
 export function owns(w: Wallet, item: Item) { return item.price === 0 || w.owned.includes(item.id); }
 
 export function buy(pid: string, item: Item): Wallet | null {
+  if (account && account.bridge.pid === pid) {
+    const acc = account;
+    const before = acc.wallet;
+    if (owns(before, item) || before.coins < item.price) return null;
+    acc.wallet = { coins: before.coins - item.price, owned: [...before.owned, item.id] };
+    emit();
+    acc.bridge.buy(item.id)
+      .then((coins) => { if (account === acc) { acc.wallet = { ...acc.wallet, coins }; emit(); } })
+      .catch((e) => {
+        if (account !== acc) return;
+        acc.wallet = { coins: acc.wallet.coins + item.price, owned: acc.wallet.owned.filter((x) => x !== item.id) };
+        emit();
+        errorListeners.forEach((f) => f(isOffline(e) ? 'Sem internet: a compra não foi feita.' : String((e as Error)?.message || e)));
+      });
+    return acc.wallet;
+  }
   const all = readAll();
   const w = all[pid] || { coins: START_COINS, owned: [] };
   if (owns(w, item) || w.coins < item.price) return null;
@@ -173,7 +251,21 @@ export function buy(pid: string, item: Item): Wallet | null {
   return next;
 }
 
-export function addCoins(pid: string, amount: number): Wallet {
+/**
+ * Soma (ou tira) moedas. Para a conta logada vai para o servidor; `key` identifica o evento
+ * (a mesma key nunca conta duas vezes). Sem internet, fica numa fila e é enviado depois.
+ */
+export function addCoins(pid: string, amount: number, reason = 'jogo', key?: string): Wallet {
+  if (account && account.bridge.pid === pid) {
+    const acc = account;
+    const k = key || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    acc.wallet = { ...acc.wallet, coins: Math.max(0, acc.wallet.coins + amount) };
+    emit();
+    acc.bridge.addCoins(amount, reason, k)
+      .then((coins) => { if (account === acc) { acc.wallet = { ...acc.wallet, coins }; emit(); } })
+      .catch((e) => { if (isOffline(e)) writePending([...readPending(), { delta: amount, reason, key: k }]); });
+    return acc.wallet;
+  }
   const all = readAll();
   const w = all[pid] || { coins: START_COINS, owned: [] };
   const next = { ...w, coins: Math.max(0, w.coins + amount) };

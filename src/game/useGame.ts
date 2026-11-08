@@ -8,6 +8,8 @@ import {
   pickAnchors, revealState, validateStart,
 } from './engine';
 import { addCoins, rewardFor } from './character';
+import { XP_RULES } from './levels';
+import { eventKey, reportXp } from './progress';
 import type { GameState, Phase, Player, Settings, SlotId, Take } from './model';
 import { loadPlayers, loadRecent, loadSettings, pushRecent, savePlayers, saveSettings } from './storage';
 
@@ -186,7 +188,13 @@ export function useGame() {
       sfx('win');
       const ranking = [...g.players].sort((a, b) => (g.totals[b.id] || 0) - (g.totals[a.id] || 0));
       const rewards: Record<string, number> = {};
-      ranking.forEach((p, i) => { rewards[p.id] = rewardFor(g.totals[p.id] || 0, i); addCoins(p.id, rewards[p.id]); });
+      const match = eventKey('im');
+      ranking.forEach((p, i) => {
+        rewards[p.id] = rewardFor(g.totals[p.id] || 0, i);
+        addCoins(p.id, rewards[p.id], 'imitação', `${match}-${p.id}`);
+        // XP só vale para quem é a conta logada (os outros jogadores do aparelho não têm conta).
+        reportXp(p.id, 'imitacao', XP_RULES.imitacao.play + (XP_RULES.imitacao.perPlace[i] || 0), i === 0 && ranking.length > 1, `${match}-${p.id}`);
+      });
       update((s) => ({ ...s, rewards }));
       setPhase('final');
     } else if (g.settings.wheel) setPhase('wheel');

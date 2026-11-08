@@ -4,7 +4,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { sfx } from '../audio/engine';
 import { addCoins, getWallet, randomLook, type Look } from '../game/character';
+import { XP_RULES } from '../game/levels';
 import { COLORS } from '../game/model';
+import { eventKey, reportXp } from '../game/progress';
 import { cleanCode, GuestNet, HostNet, TABLE_PREFIX } from '../online/net';
 import { MODULES } from './modules';
 import { BOT_NAMES, isError, type BaseState, type Config, type GameId, type GameModule, type SeatInfo } from './types';
@@ -61,16 +63,52 @@ export function useTable() {
 
   const mod = (id?: GameId) => MODULES[id || roomRef.current!.gameId] as GameModule<BaseState, unknown, unknown>;
 
-  /** Credita/debita na carteira deste aparelho os eventos de moeda do meu lugar. */
-  const applyCoins = useCallback((st: { coinEvents?: { id: number; seatId: string; delta: number }[] } | null) => {
+  /** Acompanha a partida atual para dar XP no fim (e a cada rodada no Blackjack, que não termina). */
+  const xpTrack = useRef<{ match: string; startBank: number; roundBank: number; lastRound: string | null; done: boolean } | null>(null);
+
+  /** Credita/debita na carteira deste aparelho os eventos de moeda do meu lugar, e dá o XP da partida. */
+  const applyCoins = useCallback((st: BaseState | null) => {
     const me = myIdRef.current;
     const profile = selfRef.current?.id;
-    if (!st?.coinEvents || !me || !profile) return;
+    if (!st) { xpTrack.current = null; return; }
+    if (!st.coinEvents || !me || !profile) return;
     for (const e of st.coinEvents) {
       if (e.seatId !== me || applied.current.has(e.id)) continue;
       applied.current.add(e.id);
-      addCoins(profile, e.delta);
+      // A key identifica o evento: o servidor nunca conta a mesma aposta/prêmio duas vezes.
+      addCoins(profile, e.delta, `mesa: ${e.reason}`, `t-${e.seatId}-${e.id}`);
     }
+
+    const seat = st.seats?.find((s) => s.id === me);
+    if (!seat) return;
+    let t = xpTrack.current;
+    if (!t) t = xpTrack.current = { match: eventKey('mesa'), startBank: seat.bank, roundBank: seat.bank, lastRound: null, done: false };
+    const room = roomRef.current;
+    if (room?.gameId === 'blackjack') {
+      const bj = st as BaseState & { phase?: string; round?: number };
+      const key = bj.phase === 'settle' ? `r${bj.round}` : null;
+      if (key && key !== t.lastRound) {
+        t.lastRound = key;
+        const won = seat.bank > t.roundBank;
+        t.roundBank = seat.bank;
+        reportXp(profile, 'cartas', 5 + (won ? 5 : 0), won, `${t.match}-${key}`);
+      }
+      return;
+    }
+    if (!st.over || t.done) return;
+    t.done = true;
+    // Quem venceu: pelo campo do jogo (Duvido: winner; Truco: winnerTeam) ou, se não houver, pelo saldo.
+    const s = st as BaseState & { winner?: string | null; winnerTeam?: 0 | 1 | null; teams?: [string[], string[]]; winners?: string[] };
+    const won = s.winner != null ? s.winner === me
+      : s.winnerTeam != null && s.teams ? s.teams[s.winnerTeam].includes(me)
+      : Array.isArray(s.winners) ? s.winners.includes(me)
+      : seat.bank > t.startBank;
+    reportXp(profile, 'cartas', XP_RULES.cartas.play + (won ? XP_RULES.cartas.win : 0), won, t.match);
+    const humans = (room?.seats || []).filter((x) => !x.bot).length;
+    if (room?.code && humans > 1) {
+      reportXp(profile, 'social', XP_RULES.social.onlineMatch + (hostNet.current ? XP_RULES.social.hostBonus : 0), false, `${t.match}-s`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ---------------------------------------------------------------- anfitrião / offline

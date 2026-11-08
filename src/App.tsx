@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
+import { sfx } from './audio/engine';
 import { useAuth } from './auth/useAuth';
 import { Confirm, Logo } from './components/ui';
+import { bindAccount, onWalletError, setAccountWallet } from './game/character';
 import type { Player } from './game/model';
+import { bindXp, onXp, type XpResult } from './game/progress';
 import { loadSelfId } from './game/storage';
+import { rpc } from './net/supabase';
+import { AdminScreen } from './screens/Admin';
 import { AccountSheet, AuthScreen, BlockedScreen, WarningSheet } from './screens/Auth';
 import { useGame } from './game/useGame';
 import { useOnline } from './online/useOnline';
@@ -47,6 +52,45 @@ export default function App() {
     if (!accountName || !self || self.name === accountName) return;
     api.setPlayers(api.players.map((p) => (p.id === self.id ? { ...p, name: accountName } : p)));
   }, [accountName, self?.id, self?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Moedas, compras e XP da conta passam pelo servidor.
+  const meId = auth.me?.id;
+  useEffect(() => {
+    if (!meId || !self || !auth.me) { bindAccount(null); bindXp(null); return; }
+    bindAccount({
+      pid: self.id,
+      addCoins: (delta, reason, key) => rpc<{ coins: number }>('game_coins', { p_delta: delta, p_reason: reason, p_key: key }).then((r) => r.coins),
+      buy: (itemId) => rpc<{ coins: number }>('buy_item', { p_item: itemId }).then((r) => r.coins),
+    }, { coins: auth.me.coins, owned: auth.me.items });
+    bindXp({
+      pid: self.id,
+      grant: (category, amount, won, key) => rpc<XpResult>('grant_xp', { p_category: category, p_amount: amount, p_won: won, p_key: key }),
+    });
+  }, [meId, self?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Quando o perfil volta do servidor (ex.: ao abrir "Minha conta"), o saldo da tela acompanha.
+  useEffect(() => {
+    if (auth.me) setAccountWallet({ coins: auth.me.coins, owned: auth.me.items });
+  }, [auth.me?.coins, auth.me?.items.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Avisos rápidos: subiu de nível, compra recusada pelo servidor.
+  const [notice, setNotice] = useState<string | null>(null);
+  const [admin, setAdmin] = useState(false);
+  useEffect(() => {
+    const offXp = onXp((r) => {
+      if (!r.levelups?.length) return;
+      const top = r.levelups[r.levelups.length - 1];
+      sfx('win');
+      setNotice(`⬆️ Nível ${top.level} (${top.title})!${r.bonus_coins ? ` +🪙 ${r.bonus_coins}` : ''}`);
+      auth.refresh().catch(() => {});
+    });
+    const offErr = onWalletError((msg) => { sfx('bad'); setNotice(msg); });
+    return () => { offXp(); offErr(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   // Ninguém entra no jogo sem login.
   if (auth.status !== 'ready' || !auth.me) {
@@ -114,7 +158,9 @@ export default function App() {
   const inOnline = !!online.role;
   return (
     <div className="app">
-      {dressPlayer ? (
+      {admin ? (
+        <AdminScreen auth={auth} onClose={() => { setAdmin(false); auth.refresh().catch(() => {}); }} />
+      ) : dressPlayer ? (
         <Wardrobe
           key={`dress-${dressPlayer.id}`}
           player={dressPlayer}
@@ -129,8 +175,9 @@ export default function App() {
       ) : (
         <div key={key} style={{ display: 'contents' }}>{screen}</div>
       )}
-      {account && <AccountSheet auth={auth} onClose={() => setAccount(false)} />}
+      {account && <AccountSheet auth={auth} onClose={() => setAccount(false)} onAdmin={() => { setAccount(false); setAdmin(true); }} />}
       <WarningSheet auth={auth} />
+      {notice && <div className="note-toast" role="status">{notice}</div>}
       {quit && (
         <Confirm
           title={inTable ? (table.mode === 'host' ? 'Fechar a mesa?' : 'Sair da mesa?') : inOnline ? (online.isHost ? 'Encerrar a sala?' : 'Sair da sala?') : 'Sair da partida?'}

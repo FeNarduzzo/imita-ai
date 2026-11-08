@@ -10,6 +10,8 @@ import {
   pickAnchors, revealState, validateStart,
 } from '../game/engine';
 import { addCoins, rewardFor, type Look } from '../game/character';
+import { XP_RULES } from '../game/levels';
+import { reportXp } from '../game/progress';
 import { EFFECT_NAMES, newPlayer, SLOTS, shuffle, type GameState, type Player, type SlotId } from '../game/model';
 import { loadRecent, pushRecent } from '../game/storage';
 import type { GameApi } from '../game/useGame';
@@ -532,8 +534,15 @@ export function useOnline(local: GameApi) {
     if (credited.current === key) return;
     credited.current = key;
     const ranking = [...g.players].sort((a, b) => (g.totals[b.id] || 0) - (g.totals[a.id] || 0));
-    const reward = rewardFor(g.totals[myId] || 0, ranking.findIndex((p) => p.id === myId));
-    if (meRef.current?.profileId) addCoins(meRef.current.profileId, reward);
+    const place = ranking.findIndex((p) => p.id === myId);
+    const reward = rewardFor(g.totals[myId] || 0, place);
+    const pid = meRef.current?.profileId;
+    if (pid) {
+      addCoins(pid, reward, 'imitação online', `on-${key}`);
+      reportXp(pid, 'imitacao', XP_RULES.imitacao.play + (XP_RULES.imitacao.perPlace[place] || 0), place === 0 && ranking.length > 1, `on-${key}`);
+      // Social: jogar online com gente de verdade (quem abriu a sala ganha um pouco mais).
+      reportXp(pid, 'social', XP_RULES.social.onlineMatch + (role === 'host' ? XP_RULES.social.hostBonus : 0), false, `on-${key}-s`);
+    }
     setMyReward(reward);
   }, [shared, myId]);
 

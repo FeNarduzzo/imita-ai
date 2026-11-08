@@ -16,7 +16,8 @@
     "android:apk": "vite build && cap sync android && cd android && gradlew assembleRelease",
     "dist:mac-zip": "node scripts/pack-mac.mjs",
     "export-packs": "node scripts/export-packs.mjs",
-    "build:web": "vite build"
+    "build:web": "vite build",
+    "shop-sql": "node scripts/shop-sql.mjs"
   },
   "devDependencies": {
     "@capacitor/android": "8.6.0",

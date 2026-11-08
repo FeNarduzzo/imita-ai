@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { sfx } from '../audio/engine';
 import { Character } from '../components/Character';
 import { Seg, Sheet } from '../components/ui';
 import {
-  buy, CATEGORIES, getWallet, itemsOf, lookValue, NONE_ALLOWED, owns, randomLook, withItem,
+  buy, CATEGORIES, getWallet, itemsOf, lookValue, NONE_ALLOWED, onWalletChange, owns, randomLook, withItem,
   type Category, type Item, type Look, type Wallet,
 } from '../game/character';
 import type { Player } from '../game/model';
@@ -19,6 +19,8 @@ export function CoinPill({ coins }: { coins: number }) {
 export function Wardrobe({ player, onSave, onClose, initialTab = 'closet' }: { player: Player; onSave: (look: Look) => void; onClose: () => void; initialTab?: 'closet' | 'shop' }) {
   const [look, setLook] = useState<Look>(() => player.look ?? randomLook());
   const [wallet, setWallet] = useState<Wallet>(() => getWallet(player.id));
+  // A carteira da conta é confirmada pelo servidor depois de cada compra: acompanha as mudanças.
+  useEffect(() => onWalletChange(() => setWallet(getWallet(player.id))), [player.id]);
   const [tab, setTab] = useState<'closet' | 'shop'>(initialTab);
   const [cat, setCat] = useState<Category>('top');
   const [trying, setTrying] = useState<Item | null>(null);
@@ -135,13 +137,13 @@ export function RedeemSheet({ pid, onClose, onDone }: { pid: string; onClose: ()
     setBusy(true);
     const r = await redeem(code, pid);
     setBusy(false);
-    if (r.ok) { sfx('win'); onDone(r.wallet); setState({ ok: true, text: `🎉 ${r.label}: +🪙 ${r.coins}!` }); setCode(''); }
+    if (r.ok) { sfx('win'); onDone(r.wallet); setState({ ok: true, text: r.text }); setCode(''); }
     else { sfx('bad'); setState({ ok: false, text: r.error }); }
   };
   return (
     <Sheet onClose={onClose}>
       <h2 className="title-m">🎁 Resgatar código</h2>
-      <p className="small muted" style={{ margin: 0 }}>Ganhou um código promocional? Digite aqui para receber moedas.</p>
+      <p className="small muted" style={{ margin: 0 }}>Ganhou um código promocional? Digite aqui para receber moedas, XP ou itens. Cada código vale uma vez por conta.</p>
       <input className="code-input" style={{ letterSpacing: '0.12em', fontSize: 24 }} value={code} maxLength={20} placeholder="CÓDIGO" autoCapitalize="characters"
         onChange={(e) => { setCode(e.target.value.toUpperCase()); setState(null); }} onKeyDown={(e) => e.key === 'Enter' && go()} aria-label="Código promocional" />
       {state && <div className={state.ok ? 'small' : 'error'} style={state.ok ? { color: 'var(--lime)', fontWeight: 600 } : undefined}>{state.text}</div>}

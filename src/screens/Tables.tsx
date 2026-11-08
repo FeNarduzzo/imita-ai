@@ -10,6 +10,7 @@ import type { Player } from '../game/model';
 import { handValue, type BjAction, type BjState } from '../tables/blackjack';
 import { DV_NAMES, type DvCard, type DvRank, type DvState } from '../tables/duvido';
 import { AVAILABLE, MODULES } from '../tables/modules';
+import { handName, potTotal, score7, type PkAction, type PkState } from '../tables/poker';
 import { nextValue, RAISE_NAMES, TC_TARGET, teamOf, type TcCard, type TcState, type Team } from '../tables/truco';
 import type { GameId } from '../tables/types';
 import type { RoomSeat, Self, TableApi } from '../tables/useTable';
@@ -288,6 +289,7 @@ export function TableGame({ table, onQuit }: { table: TableApi; onQuit: () => vo
     case 'blackjack': return <BlackjackTable table={table} onQuit={onQuit} />;
     case 'duvido': return <DuvidoTable table={table} onQuit={onQuit} />;
     case 'truco': return <TrucoTable table={table} onQuit={onQuit} />;
+    case 'poker': return <PokerTable table={table} onQuit={onQuit} />;
     default: return <div className="screen center">Jogo em breve.</div>;
   }
 }
@@ -317,17 +319,17 @@ function Balloon({ pumps, max, color, out, popping }: { pumps: number; max: numb
 }
 
 /** Anel tracejado com setas no sentido em que a vez anda. */
-function OrderRing({ n }: { n: number }) {
+function OrderRing({ n, rx = 38, ry = 37, cy = 47 }: { n: number; rx?: number; ry?: number; cy?: number }) {
   const arrows = Array.from({ length: n }, (_, k) => {
     const t = Math.PI / 2 - ((k + 0.5) / n) * Math.PI * 2;
-    const x = 50 + Math.cos(t) * 38;
-    const y = 47 + Math.sin(t) * 37;
-    const rot = (Math.atan2(-37 * Math.cos(t), 38 * Math.sin(t)) * 180) / Math.PI;
+    const x = 50 + Math.cos(t) * rx;
+    const y = cy + Math.sin(t) * ry;
+    const rot = (Math.atan2(-ry * Math.cos(t), rx * Math.sin(t)) * 180) / Math.PI;
     return <polygon key={k} points="-2.6,-2 2.6,0 -2.6,2" transform={`translate(${x} ${y}) rotate(${rot})`} />;
   });
   return (
     <svg className="dv-ring" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-      <ellipse cx="50" cy="47" rx="38" ry="37" />
+      <ellipse cx="50" cy={cy} rx={rx} ry={ry} />
       <g>{arrows}</g>
     </svg>
   );
@@ -661,6 +663,190 @@ export function TrucoTable({ table, onQuit }: { table: TableApi; onQuit: () => v
       <div className="bj-controls">
         {controls}
         {table.isLeader && v.phase !== 'over' && <button className="link-btn" style={{ alignSelf: 'center' }} onClick={() => table.command({ cmd: 'lobby' })}>⚙️ Voltar à sala para configurar</button>}
+        {table.toast && <div className="error">{table.toast}</div>}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- mesa de Poker
+
+const PK_RX = 40;
+const PK_RY = 38;
+const PK_CY = 46;
+function pkPos(n: number, k: number) {
+  const t = Math.PI / 2 - (k / n) * Math.PI * 2; // eu embaixo; a vez anda para a direita, como nas outras mesas
+  return { x: 50 + Math.cos(t) * PK_RX, y: PK_CY + Math.sin(t) * PK_RY };
+}
+const fmt = (n: number) => n.toLocaleString('pt-BR');
+
+export function PokerTable({ table, onQuit }: { table: TableApi; onQuit: () => void }) {
+  const r = table.room!;
+  const v = table.view as PkState | null;
+  const me = table.myId!;
+  const [raise, setRaise] = useState(0);
+  const [raising, setRaising] = useState(false);
+  useEffect(() => { setRaising(false); setRaise(0); }, [v?.turn, v?.street, v?.handNo]);
+  useEffect(() => {
+    if (!v?.banner) return;
+    if (v.phase === 'showdown') sfx(v.results?.some((x) => x.id === me && x.won > 0) ? 'win' : 'reveal');
+    else if (v.phase === 'over') sfx(v.winner === me ? 'win' : 'bad');
+    else if (/ALL-IN|aumentou|apostou/.test(v.banner)) sfx('go');
+    else if (/desistiu/.test(v.banner)) sfx('tock');
+    else if (/Flop|Turn|River|Mão/.test(v.banner)) sfx('pop');
+    else sfx('click');
+  }, [v?.banner]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!v) return <div className="screen center"><div className="spinner" /></div>;
+
+  const n = v.seats.length;
+  const name = (id: string) => (id === me ? 'Você' : v.seats.find((s) => s.id === id)?.name || '?');
+  const mine = v.p[me];
+  const bank = v.seats.find((s) => s.id === me)?.bank ?? r.seats.find((s) => s.id === me)?.bank ?? r.waiting?.find((s) => s.id === me)?.bank ?? 0;
+  const meIdx = Math.max(0, v.seats.findIndex((s) => s.id === me));
+  const kOf = (id: string) => (v.seats.findIndex((s) => s.id === id) - meIdx + n) % n;
+  const myTurn = v.phase === 'bet' && v.turn === me;
+  const toCall = mine ? Math.max(0, v.currentBet - mine.bet) : 0;
+  const max = mine ? mine.bet + mine.stack : 0;
+  const minTo = Math.min(max, v.currentBet + v.minRaise);
+  const canRaise = myTurn && max > v.currentBet;
+  const pot = potTotal(v);
+  const order = v.seats.map((s) => s.id);
+  const nextTurn = (() => {
+    if (!v.turn) return null;
+    const i = order.indexOf(v.turn);
+    for (let k = 1; k < n; k++) { const id = order[(i + k) % n]; const q = v.p[id]; if (q && !q.folded && !q.out && !q.allIn) return id; }
+    return null;
+  })();
+  const winners = new Set((v.results || []).filter((x) => x.won > 0).map((x) => x.id));
+  const bestIds = new Set((v.results || []).flatMap((x) => x.best));
+  const myScore = mine && mine.cards.length ? score7([...mine.cards, ...v.board]) : null;
+  const raiseVal = Math.min(max, Math.max(minTo, raise || minTo));
+  const quick = [
+    { t: 'Mín', to: minTo },
+    { t: '½ pote', to: v.currentBet + Math.round(pot / 2) },
+    { t: 'Pote', to: v.currentBet + pot },
+  ].map((q) => ({ ...q, to: Math.min(max, Math.max(minTo, q.to)) }));
+  const act = (a: PkAction) => { table.act(a); setRaising(false); };
+
+  let controls: React.ReactNode;
+  if (v.phase === 'over') {
+    const cash = v.cashout?.[me] ?? 0;
+    controls = (
+      <div className="stack" style={{ alignItems: 'center', gap: 8, textAlign: 'center' }}>
+        <div className="title-m">{v.winner ? (v.winner === me ? '🏆 Você ficou com todas as fichas!' : `🏆 ${name(v.winner)} ficou com todas as fichas`) : 'Mesa encerrada'}</div>
+        <div className="small">{v.practice ? 'Era treino: nenhuma moeda mudou.' : cash ? `Suas ${fmt(cash)} fichas viraram 🪙 ${fmt(cash)}.` : 'Você terminou sem fichas.'}</div>
+        {table.isLeader ? <button className="btn big pink" onClick={() => table.command({ cmd: 'lobby' })}>Nova partida</button> : <div className="status">Esperando o líder 👑…</div>}
+      </div>
+    );
+  } else if (!mine || mine.out) {
+    controls = <div className="status">{table.isWaiting ? 'Você entra na próxima mão.' : mine?.out ? 'Você ficou sem fichas — assista até o fim.' : 'Assistindo…'}</div>;
+  } else {
+    controls = (
+      <>
+        <div className="pk-mine">
+          <div className="pk-hole">
+            {mine.cards.map((c) => <Card key={c.id} card={c} size={58} highlight={bestIds.has(c.id) && winners.has(me)} />)}
+          </div>
+          <div className="pk-info">
+            <span className="caps">Suas fichas</span>
+            <b className="pk-stack">🟡 {fmt(mine.stack)}</b>
+            {myScore && !mine.folded && <span className="small pk-handname">{handName(myScore)}</span>}
+            {mine.folded && <span className="small faint">Você desistiu desta mão</span>}
+          </div>
+        </div>
+        {myTurn ? (
+          <>
+            <div className="row">
+              <button className="btn red grow" onClick={() => act({ type: 'fold' })}>Desistir</button>
+              {toCall > 0
+                ? <button className="btn cyan grow" onClick={() => act({ type: 'call' })}>{toCall >= mine.stack ? `Pagar tudo (${fmt(mine.stack)})` : `Pagar ${fmt(toCall)}`}</button>
+                : <button className="btn cyan grow" onClick={() => act({ type: 'check' })}>Passar</button>}
+              <button className="btn pink grow" disabled={!canRaise} onClick={() => { setRaising((x) => !x); setRaise(minTo); }}>{v.currentBet ? 'Aumentar' : 'Apostar'}</button>
+            </div>
+            {raising && canRaise && (
+              <div className="pk-raise">
+                <div className="row" style={{ gap: 6 }}>
+                  {quick.map((q) => <button key={q.t} className={`btn ghost sm grow ${raiseVal === q.to ? 'on' : ''}`} onClick={() => setRaise(q.to)}>{q.t}</button>)}
+                  <button className={`btn ghost sm grow ${raiseVal === max ? 'on' : ''}`} onClick={() => setRaise(max)}>All-in</button>
+                </div>
+                <input type="range" className="pk-slider" min={minTo} max={max} step={Math.max(1, v.sb)} value={raiseVal} aria-label="Valor do aumento"
+                  onChange={(e) => { const x = Number(e.target.value); setRaise(x >= max - v.sb / 2 ? max : x); }} />
+                <button className="btn lime full" onClick={() => act(raiseVal >= max ? { type: 'allin' } : { type: 'raise', to: raiseVal })}>
+                  {raiseVal >= max ? `ALL-IN (${fmt(max)})` : v.currentBet ? `Aumentar para ${fmt(raiseVal)}` : `Apostar ${fmt(raiseVal)}`}
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="status">
+            {v.phase === 'bet' && v.turn ? `Vez de ${name(v.turn)}${nextTurn && nextTurn !== v.turn ? ` · depois: ${nextTurn === me ? 'você' : name(nextTurn)}` : ''}` : v.phase === 'showdown' ? 'Próxima mão já vem…' : '…'}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <div className="screen table-screen">
+      <div className="topbar">
+        <button className="icon-btn" aria-label="Sair da mesa" onClick={onQuit}>✕</button>
+        <span className="round-chip">♠️ Mão {v.handNo} · {v.sb}/{v.bb}{r.code ? ` · ${r.code}` : ''}</span>
+        {v.practice ? <span className="badge yellow">Treino</span> : <CoinPill coins={bank} />}
+      </div>
+      <WaitingBanner table={table} />
+      <div className="tc-banner-line">{v.banner && <div className="dv-banner" key={`${v.handNo}-${v.banner}`}>{v.banner}</div>}</div>
+
+      <div className="felt pk-felt">
+        <OrderRing n={n} rx={PK_RX} ry={PK_RY} cy={PK_CY} />
+        <div className="pk-center">
+          <span className="pk-pot">{v.phase === 'showdown' && v.pots.length > 1
+            ? v.pots.map((p, i) => `${i ? 'Paralelo' : 'Pote'} ${fmt(p.amount)}`).join(' · ')
+            : `Pote ${fmt(v.phase === 'showdown' ? v.pots.reduce((a, p) => a + p.amount, 0) : pot)}`}</span>
+          <div className="pk-board">
+            {Array.from({ length: 5 }, (_, i) => v.board[i]
+              ? <Card key={v.board[i].id} card={v.board[i]} size={34} highlight={bestIds.has(v.board[i].id)} />
+              : <span key={`e${i}`} className="pk-slot" />)}
+          </div>
+        </div>
+        {v.seats.map((s) => {
+          const q = v.p[s.id];
+          if (!q) return null;
+          const k = kOf(s.id);
+          const pos = pkPos(n, k);
+          const bet = { x: 50 + (pos.x - 50) * 0.5, y: PK_CY + (pos.y - PK_CY) * 0.5 };
+          const active = v.phase === 'bet' && v.turn === s.id;
+          const res = v.results?.find((x) => x.id === s.id);
+          return (
+            <div key={s.id}>
+              <div className={`pk-seat ${active ? 'active' : ''} ${q.folded && !q.out ? 'folded' : ''} ${q.out ? 'out' : ''} ${winners.has(s.id) ? 'winner' : ''}`} style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
+                {k !== 0 && !q.out && !q.folded && (
+                  <div className="pk-cards">
+                    {q.cards.length
+                      ? q.cards.map((c) => <Card key={c.id} card={c} size={24} highlight={bestIds.has(c.id) && winners.has(s.id)} />)
+                      : Array.from({ length: q.count ?? 0 }, (_, j) => <span key={j} className="pk-back" />)}
+                  </div>
+                )}
+                <Avatar p={s} size="s" />
+                <span className="seat-name">{r.leaderId === s.id ? '👑 ' : ''}{name(s.id)}</span>
+                <span className="pk-chips">🟡 {fmt(q.stack)}</span>
+                <span className="pk-tags">
+                  {v.button === s.id && <span className="pk-btn" title="Botão (dealer)">D</span>}
+                  {v.sbSeat === s.id && v.handNo > 0 && <span className="tc-tag">SB</span>}
+                  {v.bbSeat === s.id && v.handNo > 0 && <span className="tc-tag">BB</span>}
+                  {active && <span className="dv-role turn">na vez</span>}
+                  {res && res.won > 0 ? <span className="dv-role played">+{fmt(res.won)}</span> : q.last && !active ? <span className={`pk-last ${q.last === 'desistiu' ? 'fold' : q.last === 'all-in' ? 'allin' : ''}`}>{q.last}</span> : null}
+                </span>
+                {res?.name && v.showCards && <span className="pk-hand-tag">{res.name}</span>}
+              </div>
+              {q.bet > 0 && <span className="pk-bet" style={{ left: `${bet.x}%`, top: `${bet.y}%` }}>🟡 {fmt(q.bet)}</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="bj-controls">
+        {controls}
+        {table.isLeader && v.phase !== 'over' && <button className="link-btn" style={{ alignSelf: 'center' }} onClick={() => table.command({ cmd: 'lobby' })}>⚙️ {v.practice ? 'Encerrar a mesa' : 'Encerrar e trocar fichas por moedas'}</button>}
         {table.toast && <div className="error">{table.toast}</div>}
       </div>
     </div>

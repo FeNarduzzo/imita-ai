@@ -287,6 +287,44 @@ export function WarningSheet({ auth }: { auth: AuthApi }) {
 
 // ---------------------------------------------------------------- minha conta
 
+function ChangePassword({ auth }: { auth: AuthApi }) {
+  const [open, setOpen] = useState(false);
+  const [p, setP] = useState('');
+  const [p2, setP2] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [m, setM] = useState<{ ok: boolean; text: string } | null>(null);
+  if (!open) return <button className="link-btn" style={{ alignSelf: 'center' }} onClick={() => setOpen(true)}>Trocar senha</button>;
+  const go = async () => {
+    setBusy(true);
+    setM(null);
+    try {
+      await auth.changePassword(p);
+      setM({ ok: true, text: 'Senha trocada!' });
+      setP(''); setP2('');
+    } catch (x) {
+      setM({ ok: false, text: errMsg(x) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card stack" style={{ gap: 10 }}>
+      <b>Trocar senha</b>
+      <Field label="Senha nova" hint="Pelo menos 8 caracteres.">
+        <PasswordInput value={p} onChange={setP} autoComplete="new-password" invalid={!!p && p.length < 8} />
+      </Field>
+      <Field label="Repita a senha nova" hint={p2 && p !== p2 ? <span className="bad-text">As senhas não são iguais</span> : undefined}>
+        <PasswordInput value={p2} onChange={setP2} autoComplete="new-password" invalid={!!p2 && p !== p2} />
+      </Field>
+      {m && <div className={m.ok ? 'admin-ok' : 'error'} role={m.ok ? 'status' : 'alert'}>{m.text}</div>}
+      <div className="row">
+        <button className="btn ghost grow" onClick={() => { setOpen(false); setM(null); }}>Fechar</button>
+        <button className="btn cyan grow" disabled={busy || p.length < 8 || p !== p2} onClick={go}>{busy ? 'Trocando…' : 'Trocar'}</button>
+      </div>
+    </div>
+  );
+}
+
 function Bar({ pct, color }: { pct: number; color: string }) {
   return <div className="lvl-bar"><div style={{ width: `${Math.round(pct * 100)}%`, background: color }} /></div>;
 }
@@ -352,6 +390,7 @@ export function AccountSheet({ auth, onClose, onAdmin }: { auth: AuthApi; onClos
         <button className="link-btn" onClick={() => setLegal(TERMS)}>Termos de Uso</button>
         <button className="link-btn" onClick={() => setLegal(PRIVACY)}>Política de Privacidade</button>
       </div>
+      <ChangePassword auth={auth} />
       <button className="btn ghost" onClick={() => auth.signOut()}>Sair da conta</button>
 
       {!del ? (
