@@ -316,10 +316,27 @@ function Balloon({ pumps, max, color, out, popping }: { pumps: number; max: numb
   );
 }
 
+/** Anel tracejado com setas no sentido em que a vez anda. */
+function OrderRing({ n }: { n: number }) {
+  const arrows = Array.from({ length: n }, (_, k) => {
+    const t = Math.PI / 2 - ((k + 0.5) / n) * Math.PI * 2;
+    const x = 50 + Math.cos(t) * 38;
+    const y = 47 + Math.sin(t) * 37;
+    const rot = (Math.atan2(-37 * Math.cos(t), 38 * Math.sin(t)) * 180) / Math.PI;
+    return <polygon key={k} points="-2.6,-2 2.6,0 -2.6,2" transform={`translate(${x} ${y}) rotate(${rot})`} />;
+  });
+  return (
+    <svg className="dv-ring" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      <ellipse cx="50" cy="47" rx="38" ry="37" />
+      <g>{arrows}</g>
+    </svg>
+  );
+}
+
 function circlePos(n: number, meIdx: number) {
   return Array.from({ length: n }, (_, i) => {
     const k = (i - meIdx + n) % n; // eu sempre embaixo
-    const ang = Math.PI / 2 + (k / n) * Math.PI * 2;
+    const ang = Math.PI / 2 - (k / n) * Math.PI * 2; // a vez anda para a direita (anti-horário), como no Truco
     return { x: 50 + Math.cos(ang) * 38, y: 47 + Math.sin(ang) * 37 };
   });
 }
@@ -347,6 +364,28 @@ export function DuvidoTable({ table, onQuit }: { table: TableApi; onQuit: () => 
   const pos = circlePos(v.seats.length, meIdx);
   const showCards = v.phase === 'reveal' || v.phase === 'pump' || v.phase === 'next' || v.phase === 'over';
   const turnName = v.seats.find((s) => s.id === v.turn)?.name;
+  const order = v.seats.map((s) => s.id);
+  const nextAliveAfter = (id: string) => {
+    const i = order.indexOf(id);
+    for (let k = 1; k <= order.length; k++) { const x = order[(i + k) % order.length]; if (v.p[x] && !v.p[x].out) return x; }
+    return id;
+  };
+  const nextId = v.phase === 'play' ? nextAliveAfter(v.turn) : null;
+  const nextName = nextId && nextId !== v.turn ? (nextId === me ? 'você' : v.seats.find((s) => s.id === nextId)?.name) : null;
+  const revealing = v.phase === 'reveal' || v.phase === 'pump';
+  const roles = (id: string) => {
+    const out: { t: string; c: string }[] = [];
+    if (revealing && v.reveal) {
+      if (v.reveal.by === id) out.push({ t: 'jogou', c: 'played' });
+      if (v.reveal.challenger === id) out.push({ t: 'duvidou 🤨', c: 'doubt' });
+      return out;
+    }
+    if (v.phase !== 'play') return out;
+    if (v.turn === id) out.push({ t: 'na vez', c: 'turn' });
+    if (v.lastPlay?.by === id) out.push({ t: `jogou ${v.lastPlay.count}`, c: 'played' });
+    if (nextId === id && id !== v.turn) out.push({ t: 'próximo', c: 'next' });
+    return out;
+  };
   const toggle = (id: string) => { sfx('click'); setSel((x) => (x.includes(id) ? x.filter((y) => y !== id) : x.length >= v.config.maxPlay ? x : [...x, id])); };
 
   return (
@@ -365,6 +404,7 @@ export function DuvidoTable({ table, onQuit }: { table: TableApi; onQuit: () => 
       </div>
 
       <div className="felt dv-felt">
+        <OrderRing n={v.seats.length} />
         {v.seats.map((s, i) => {
           const pl = v.p[s.id];
           if (!pl) return null;
@@ -374,6 +414,7 @@ export function DuvidoTable({ table, onQuit }: { table: TableApi; onQuit: () => 
               <Balloon pumps={pl.pumps} max={v.config.balloon} color={s.color} out={pl.out} popping={v.phase === 'pump' && v.pump?.id === s.id} />
               <Avatar p={s} size="s" />
               <span className="seat-name">{r.leaderId === s.id ? '👑 ' : ''}{s.id === me ? 'Você' : s.name}</span>
+              <span className="dv-roles">{roles(s.id).map((x) => <span key={x.c} className={`dv-role ${x.c}`}>{x.t}</span>)}</span>
               {!pl.out && <span className="small">🂠 ×{pl.handCount ?? pl.hand.length}</span>}
             </div>
           );
@@ -411,7 +452,7 @@ export function DuvidoTable({ table, onQuit }: { table: TableApi; onQuit: () => 
                   Jogar {sel.length || ''} {sel.length === 1 ? 'carta' : 'cartas'}
                 </button>
               </div>
-            ) : <div className="status">{v.phase === 'play' ? `Vez de ${turnName}…` : '…'}</div>}
+            ) : <div className="status">{v.phase === 'play' ? `Vez de ${turnName}${nextName ? ` · depois: ${nextName}` : ''}` : '…'}</div>}
             {myTurn && <div className="small faint" style={{ textAlign: 'center' }}>Escolha até {v.config.maxPlay} cartas. Você diz que todas são {DV_NAMES[v.table]} — pode ser verdade… ou não 😏</div>}
           </>
         ) : (

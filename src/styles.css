@@ -608,3 +608,14 @@ button.card.face:active { transform: translateY(-2px) scale(0.97); }
 .seat-tag { font-size: 10px; font-weight: 800; padding: 1px 7px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
 .seat-tag.t0 { background: rgba(158, 240, 26, 0.2); color: var(--lime); }
 .seat-tag.t1 { background: rgba(61, 224, 245, 0.2); color: var(--cyan); }
+
+/* ---------------------------------------------------------------- Duvido: ordem da vez */
+.dv-ring { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+.dv-ring ellipse { fill: none; stroke: rgba(255, 230, 160, 0.3); stroke-width: 1.5; stroke-dasharray: 5 6; vector-effect: non-scaling-stroke; }
+.dv-ring polygon { fill: rgba(255, 230, 160, 0.65); }
+.dv-roles { display: flex; gap: 3px; flex-wrap: wrap; justify-content: center; min-height: 15px; }
+.dv-role { font-size: 9.5px; font-weight: 800; padding: 1px 6px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; background: rgba(0, 0, 0, 0.45); }
+.dv-role.turn { background: var(--yellow); color: #2a1458; }
+.dv-role.next { color: var(--cyan); }
+.dv-role.played { color: var(--pink); }
+.dv-role.doubt { background: #ff5d5d; color: #fff; }
