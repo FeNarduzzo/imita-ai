@@ -229,6 +229,16 @@ export function useTable() {
         setRoomState({ seats, leaderId: r.leaderId === target.id ? r.hostSeatId : r.leaderId });
         return null;
       }
+      case 'move': {
+        // sobe um lugar (no Truco, é assim que se escolhe a dupla)
+        if (r.phase !== 'lobby') return 'Só na sala de espera.';
+        const i = r.seats.findIndex((s) => s.id === cmd.seatId);
+        if (i <= 0) return null;
+        const seats = r.seats.slice();
+        [seats[i - 1], seats[i]] = [seats[i], seats[i - 1]];
+        setRoomState({ seats });
+        return null;
+      }
       case 'leader': {
         const target = r.seats.find((s) => s.id === cmd.seatId);
         if (!target || target.bot) return 'Escolha uma pessoa (não um bot).';
@@ -239,6 +249,8 @@ export function useTable() {
         if (r.phase !== 'lobby') return null;
         if (r.seats.length < m.minSeats) return `Precisa de pelo menos ${m.minSeats} lugares.`;
         if (r.seats.length > m.maxSeats) return `No máximo ${m.maxSeats} lugares.`;
+        const bad = m.seatCheck?.(r.seats.length);
+        if (bad) return bad;
         applied.current.clear();
         stateRef.current = m.init(r.config, r.seats.map(({ id, name, color, look, bot, bank }) => ({ id, name, color, look, bot, bank })));
         setRoomState({ phase: 'game' });

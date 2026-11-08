@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { sfx, unlockAudio } from '../audio/engine';
 import { Card } from '../cards/Card';
+import { cardName, RANK_NAMES } from '../cards/cards';
 import { Character } from '../components/Character';
 import { Avatar, Logo, Seg, Toggle } from '../components/ui';
 import type { Look } from '../game/character';
@@ -9,6 +10,7 @@ import type { Player } from '../game/model';
 import { handValue, type BjAction, type BjState } from '../tables/blackjack';
 import { DV_NAMES, type DvCard, type DvRank, type DvState } from '../tables/duvido';
 import { AVAILABLE, MODULES } from '../tables/modules';
+import { nextValue, RAISE_NAMES, TC_TARGET, teamOf, type TcCard, type TcState, type Team } from '../tables/truco';
 import type { GameId } from '../tables/types';
 import type { RoomSeat, Self, TableApi } from '../tables/useTable';
 import { CoinPill } from './Wardrobe';
@@ -58,16 +60,17 @@ export function TableHub({ self, table, initialCode, onBack }: { self: Player; t
 
 // ---------------------------------------------------------------- sala de espera
 
-function SeatRow({ s, table, isHostSeat }: { s: RoomSeat; table: TableApi; isHostSeat: boolean }) {
+function SeatRow({ s, table, isHostSeat, tag, tagIdx, canMove }: { s: RoomSeat; table: TableApi; isHostSeat: boolean; tag?: string | null; tagIdx?: number; canMove?: boolean }) {
   const r = table.room!;
   const lead = r.leaderId === s.id;
   return (
     <div className="player-row" style={{ opacity: s.online ? 1 : 0.5 }}>
       <Avatar p={s} />
       <div className="grow" style={{ minWidth: 0 }}>
-        <b style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead ? '👑 ' : ''}{s.name}{s.id === table.myId ? ' (você)' : ''}</b>
+        <b style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead ? '👑 ' : ''}{s.name}{s.id === table.myId ? ' (você)' : ''}{tag && <span className={`seat-tag t${tagIdx}`}>{tag}</span>}</b>
         <span className="small faint">🪙 {s.bank}{s.bot ? ' · bot' : ''}</span>
       </div>
+      {canMove && <button className="btn ghost sm" title="Subir um lugar" aria-label={`Subir ${s.name} um lugar`} onClick={() => { sfx('click'); table.command({ cmd: 'move', seatId: s.id }); }}>⇅</button>}
       {table.isLeader && !s.bot && !lead && <button className="btn ghost sm" title="Passar a liderança" onClick={() => table.command({ cmd: 'leader', seatId: s.id })}>👑</button>}
       {table.isLeader && !isHostSeat && s.id !== table.myId && <button className="icon-btn" style={{ width: 38, height: 38, fontSize: 14 }} aria-label={`Remover ${s.name}`} onClick={() => table.command({ cmd: 'remove', seatId: s.id })}>✕</button>}
     </div>
@@ -134,7 +137,11 @@ export function TableLobby({ table, onQuit }: { table: TableApi; onQuit: () => v
       <section className="section">
         <div className="section-head"><h2>Na mesa</h2><span className="caps">{r.seats.length}/{m.maxSeats}</span></div>
         <div className="stack" style={{ gap: 8 }}>
-          {r.seats.map((s) => <SeatRow key={s.id} s={s} table={table} isHostSeat={s.id === r.hostSeatId} />)}
+          {r.seats.some((_, i) => m.seatTag?.(i, r.seats.length)) && <span className="small faint">Lugares 1 e 3 jogam juntos contra 2 e 4{leader ? ' — use ⇅ para escolher a dupla' : ''}.</span>}
+          {r.seats.map((s, i) => {
+            const tag = m.seatTag?.(i, r.seats.length) ?? null;
+            return <SeatRow key={s.id} s={s} table={table} isHostSeat={s.id === r.hostSeatId} tag={tag} tagIdx={i % 2} canMove={leader && !!tag && i > 0} />;
+          })}
           {leader && r.seats.length < m.maxSeats && <button className="add-player" onClick={() => { sfx('pop'); table.command({ cmd: 'addBot' }); }}>+ Adicionar bot 🤖</button>}
         </div>
       </section>
@@ -280,6 +287,7 @@ export function TableGame({ table, onQuit }: { table: TableApi; onQuit: () => vo
   switch (table.room?.gameId) {
     case 'blackjack': return <BlackjackTable table={table} onQuit={onQuit} />;
     case 'duvido': return <DuvidoTable table={table} onQuit={onQuit} />;
+    case 'truco': return <TrucoTable table={table} onQuit={onQuit} />;
     default: return <div className="screen center">Jogo em breve.</div>;
   }
 }
@@ -409,6 +417,208 @@ export function DuvidoTable({ table, onQuit }: { table: TableApi; onQuit: () => 
         ) : (
           <div className="status">{mine?.out ? '💥 Seu balão estourou — assista ao fim da partida.' : 'Assistindo…'}</div>
         )}
+        {table.isLeader && v.phase !== 'over' && <button className="link-btn" style={{ alignSelf: 'center' }} onClick={() => table.command({ cmd: 'lobby' })}>⚙️ Voltar à sala para configurar</button>}
+        {table.toast && <div className="error">{table.toast}</div>}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- mesa do Truco
+
+// Eu sempre embaixo; a vez anda no sentido anti-horário: direita, frente, esquerda.
+const TC_SEAT = [{ x: 50, y: 85 }, { x: 87, y: 50 }, { x: 50, y: 14 }, { x: 13, y: 50 }];
+const TC_PLAY = [{ x: 50, y: 63 }, { x: 68, y: 49 }, { x: 50, y: 35 }, { x: 32, y: 49 }];
+const tcSpot = (n: number, k: number) => (n === 2 ? [0, 2][k] : k);
+
+export function TrucoTable({ table, onQuit }: { table: TableApi; onQuit: () => void }) {
+  const r = table.room!;
+  const v = table.view as TcState | null;
+  const me = table.myId!;
+  const [sel, setSel] = useState<string | null>(null);
+  const [cover, setCover] = useState(false);
+  const us: Team = v ? teamOf(v, me) : 0;
+  useEffect(() => { setSel(null); setCover(false); }, [v?.handNo, v?.tricks.length, v?.turn, v?.phase]);
+  useEffect(() => {
+    if (!v?.banner) return;
+    if (v.phase === 'call') sfx('go');
+    else if (v.phase === 'trickEnd') sfx('pop');
+    else if (v.phase === 'handEnd') sfx(v.lastHand?.team == null ? 'tock' : v.lastHand.team === us ? 'win' : 'bad');
+    else if (v.phase === 'over') sfx(v.winnerTeam === us ? 'win' : 'bad');
+    else if (v.phase === 'onze') sfx('reveal');
+    else sfx('click');
+  }, [v?.banner]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!v) return <div className="screen center"><div className="spinner" /></div>;
+
+  const n = v.seats.length;
+  const them = (1 - us) as Team;
+  const name = (id: string) => (id === me ? 'Você' : v.seats.find((s) => s.id === id)?.name || '?');
+  const names = (t: Team) => v.teams[t].map(name).join(' e ');
+  const label = (t: Team) => (n === 2 ? name(v.teams[t][0]) : t === us ? 'Nós' : 'Eles');
+  const plural = (t: Team) => n === 4 || (n === 2 && t === us);
+  const hand = v.hands[me] || [];
+  const myTurn = v.phase === 'play' && v.turn === me;
+  const canTruco = myTurn && !v.noTruco && v.value < TC_TARGET && v.raisedBy !== us;
+  const canCover = myTurn && v.config.coberta && v.tricks.length > 0 && !v.ferro;
+  const bank = v.seats.find((s) => s.id === me)?.bank ?? r.seats.find((s) => s.id === me)?.bank ?? 0;
+  const meIdx = Math.max(0, v.seats.findIndex((s) => s.id === me));
+  const spotOf = (id: string) => tcSpot(n, (v.seats.findIndex((s) => s.id === id) - meIdx + n) % n);
+  const fullTrick = v.trick.length === n && (v.phase === 'trickEnd' || v.phase === 'handEnd');
+  const trickWinner = fullTrick ? v.tricksBy[v.tricksBy.length - 1] : null;
+  const dot = (i: number) => { const t = v.tricks[i]; return t === undefined ? '' : t === -1 ? 'tie' : t === us ? 'us' : 'them'; };
+  const pend = v.phase === 'call' ? v.pending : null;
+  const onze = v.phase === 'onze' ? v.onze : null;
+  const partner = n === 4 ? v.teams[us].find((x) => x !== me) : undefined;
+  const raiseLabel = (val: number) => `${RAISE_NAMES[nextValue(val)] || 'DOZE'}!`;
+
+  const play = (id: string) => { sfx('click'); table.act({ type: 'play', id, covered: cover && canCover }); setSel(null); };
+  const tap = (id: string) => { if (!myTurn) return; if (sel === id) play(id); else { sfx('tock'); setSel(id); } };
+  const handView = (cards: TcCard[], interactive: boolean, size = 62, dim = false) => (
+    <div className="tc-hand">
+      {cards.map((c) => (c.blind
+        ? <button key={c.id} className={`tc-blind ${sel === c.id ? 'sel' : ''}`} aria-label="Carta escondida (mão de ferro)" disabled={!interactive} onClick={() => tap(c.id)}><Card hidden size={size} /></button>
+        : <Card key={c.id} card={c} size={size} highlight={sel === c.id} className={`${c.r === v.manilha ? 'manilha' : ''} ${dim ? 'dim' : ''}`} onClick={interactive ? () => tap(c.id) : undefined} />))}
+      {!cards.length && <span className="small faint">Sem cartas na mão.</span>}
+    </div>
+  );
+
+  let controls: React.ReactNode;
+  if (v.phase === 'over') {
+    const won = v.winnerTeam === us;
+    controls = (
+      <div className="stack" style={{ alignItems: 'center', gap: 8, textAlign: 'center' }}>
+        <div className="title-m">{won ? (n === 4 ? '🏆 Sua dupla venceu!' : '🏆 Você venceu!') : `🏆 ${names(them)} ${n === 4 ? 'venceram' : 'venceu'}`}</div>
+        {v.pot > 0 && <div className="small">{won ? `Pote de 🪙 ${v.pot}${n === 4 ? ' dividido entre vocês dois' : ' é seu'}!` : `O pote de 🪙 ${v.pot} ficou com eles.`}</div>}
+        {table.isLeader ? <button className="btn big pink" onClick={() => table.command({ cmd: 'lobby' })}>Nova partida</button> : <div className="status">Esperando o líder 👑…</div>}
+      </div>
+    );
+  } else if (onze) {
+    const mine = onze.team === us;
+    controls = mine ? (
+      <div className="tc-call">
+        <div className="tc-call-title">Mão de onze!</div>
+        <div className="small">{onze.decider === me ? `${n === 4 ? 'Sua dupla tem' : 'Você tem'} 11. Jogar vale 3 pontos; correr dá 1 ponto para ${label(them)}.` : `${name(onze.decider)} decide se vocês jogam.`}</div>
+        {handView(hand, false, 52)}
+        {v.partnerHand && partner && <><div className="caps">Cartas de {name(partner)}</div>{handView(v.partnerHand, false, 52)}</>}
+        {onze.decider === me && (
+          <div className="row">
+            <button className="btn lime grow" onClick={() => table.act({ type: 'onze', play: true })}>Jogar (vale 3)</button>
+            <button className="btn red grow" onClick={() => table.act({ type: 'onze', play: false })}>Correr</button>
+          </div>
+        )}
+      </div>
+    ) : (
+      <>
+        {handView(hand, false, 62, true)}
+        <div className="status">{label(onze.team)} {plural(onze.team) ? 'estão' : 'está'} com 11 e decidindo se joga…</div>
+      </>
+    );
+  } else if (pend) {
+    controls = pend.responder === me ? (
+      <div className="tc-call">
+        <div className="tc-call-title">{name(pend.by)} pediu {RAISE_NAMES[pend.to]}!</div>
+        <div className="small">Aceitar: a mão passa a valer {pend.to}. Correr: {label(pend.team)} {plural(pend.team) ? 'ganham' : 'ganha'} {v.value}.</div>
+        {handView(hand, false, 52)}
+        <div className="row">
+          <button className="btn lime grow" onClick={() => table.act({ type: 'accept' })}>Aceitar</button>
+          <button className="btn red grow" onClick={() => table.act({ type: 'run' })}>Correr</button>
+          {pend.to < TC_TARGET && <button className="btn pink grow" onClick={() => table.act({ type: 'raise' })}>{raiseLabel(pend.to)}</button>}
+        </div>
+      </div>
+    ) : (
+      <>
+        {handView(hand, false, 62)}
+        <div className="status">{name(pend.by)} pediu {RAISE_NAMES[pend.to]}! Esperando {name(pend.responder)} responder…</div>
+      </>
+    );
+  } else {
+    controls = (
+      <>
+        {handView(hand, myTurn, 62, v.phase === 'play' && !myTurn)}
+        {myTurn ? (
+          <div className="row">
+            <button className="btn red grow" disabled={!canTruco} onClick={() => table.act({ type: 'truco' })}>{v.value < TC_TARGET ? raiseLabel(v.value) : 'Vale 12'}</button>
+            <button className="btn cyan grow" disabled={!sel} onClick={() => sel && play(sel)}>{cover && canCover ? 'Jogar coberta' : 'Jogar carta'}</button>
+          </div>
+        ) : <div className="status">{v.phase === 'play' ? `Vez de ${name(v.turn)}…` : '…'}</div>}
+        {canCover && (
+          <div className="row between tc-cover">
+            <span className="small">🂠 Jogar coberta (não vale nada, mas esconde o jogo)</span>
+            <Toggle label="Jogar coberta" on={cover} onChange={setCover} />
+          </div>
+        )}
+        <div className="small faint" style={{ textAlign: 'center' }}>
+          {v.ferro ? 'Mão de ferro: ninguém vê as próprias cartas. Boa sorte!' : `Manilha ${RANK_NAMES[v.manilha]}: ♣ Zap › ♥ Copeta › ♠ Espadilha › ♦ Pica-fumo`}
+          {myTurn ? ' · toque 2× na carta para jogar' : ''}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className="screen table-screen">
+      <div className="topbar">
+        <button className="icon-btn" aria-label="Sair da mesa" onClick={onQuit}>✕</button>
+        <span className="round-chip">🃏 Mão {v.handNo}{r.code ? ` · ${r.code}` : ''}</span>
+        <CoinPill coins={bank} />
+      </div>
+
+      <div className="tc-score" aria-label={`Placar: ${label(us)} ${v.score[us]}, ${label(them)} ${v.score[them]}`}>
+        <div className="tc-team us">
+          <span className="caps">{label(us)}</span>
+          <b>{v.score[us]}</b>
+          {n === 4 && <span className="small faint">{names(us)}</span>}
+        </div>
+        <div className="tc-mid">
+          <span className={`tc-value ${v.value > 1 ? 'up' : ''}`} key={v.value}>{v.ferro ? 'Mão de ferro' : `Vale ${v.value}`}</span>
+          <div className="tc-dots" aria-label="Vazas desta mão">{[0, 1, 2].map((i) => <span key={i} className={`tc-dot ${dot(i)}`} />)}</div>
+          <span className="small faint">até {TC_TARGET}</span>
+        </div>
+        <div className="tc-team them">
+          <span className="caps">{label(them)}</span>
+          <b>{v.score[them]}</b>
+          {n === 4 && <span className="small faint">{names(them)}</span>}
+        </div>
+      </div>
+
+      <div className="tc-banner-line">{v.banner && <div className="dv-banner" key={`${v.handNo}-${v.banner}`}>{v.banner}</div>}</div>
+
+      <div className="felt tc-felt">
+        <div className="tc-vira" aria-label={`Vira: ${cardName(v.vira)}. Manilha: ${RANK_NAMES[v.manilha]}`}>
+          <span className="tc-vira-label">Vira</span>
+          <Card card={v.vira} size={38} />
+          <span className="tc-manilha">Manilha: {RANK_NAMES[v.manilha]}</span>
+        </div>
+        {v.seats.map((s) => {
+          const spot = spotOf(s.id);
+          const p = TC_SEAT[spot];
+          const active = (v.phase === 'play' && v.turn === s.id) || pend?.responder === s.id || onze?.decider === s.id;
+          const count = v.counts?.[s.id] ?? 0;
+          return (
+            <div key={s.id} className={`tc-seat ${active ? 'active' : ''}`} style={{ left: `${p.x}%`, top: `${p.y}%` }}>
+              {spot !== 0 && <div className="tc-backs" aria-label={`${count} cartas`}>{Array.from({ length: count }, (_, j) => <span key={j} />)}</div>}
+              <Avatar p={s} size="s" />
+              <span className="seat-name">{r.leaderId === s.id ? '👑 ' : ''}{name(s.id)}</span>
+              <span className="tc-tags">
+                {v.mao === s.id && <span className="tc-tag">mão</span>}
+                {s.id === partner && <span className="tc-tag partner">parceiro</span>}
+              </span>
+            </div>
+          );
+        })}
+        {v.trick.map((p) => {
+          const q = TC_PLAY[spotOf(p.seat)];
+          return (
+            <div key={`${v.handNo}-${p.seat}-${p.card?.id ?? 'coberta'}`} className={`tc-played ${trickWinner === p.seat ? 'win' : ''}`} style={{ left: `${q.x}%`, top: `${q.y}%` }}>
+              {p.card ? <Card card={p.card} size={46} className={p.card.r === v.manilha ? 'manilha' : ''} /> : <Card hidden size={46} />}
+              {p.covered && <span className="tc-covered">coberta</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="bj-controls">
+        {controls}
         {table.isLeader && v.phase !== 'over' && <button className="link-btn" style={{ alignSelf: 'center' }} onClick={() => table.command({ cmd: 'lobby' })}>⚙️ Voltar à sala para configurar</button>}
         {table.toast && <div className="error">{table.toast}</div>}
       </div>

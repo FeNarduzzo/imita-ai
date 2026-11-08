@@ -57,6 +57,10 @@ export interface GameModule<S extends BaseState = BaseState, A = unknown, V = un
   canAdmit?(state: S): boolean;
   addSeat?(state: S, seat: SeatInfo): S;
   removeSeat?(state: S, seatId: string): S;
+  /** Número de lugares aceito? (ex.: Truco só 2 ou 4). Retorna a mensagem de erro, ou null. */
+  seatCheck?(n: number): string | null;
+  /** Etiqueta do lugar na sala de espera (ex.: "Dupla 1"). Com etiqueta, o líder pode trocar a ordem. */
+  seatTag?(index: number, n: number): string | null;
   /** Partida interrompida no meio (líder voltou à sala ou fechou a mesa): devolve as apostas em jogo. */
   refund?(state: S): S;
 }

@@ -16,7 +16,7 @@ const GAMES: Record<Tab, GameCard[]> = {
     { dest: 'imitacao', title: 'Imitação', sub: 'Passa o celular: ouça, imite e ganhe nota', art: '🎤', tint: '#ff4f9a', ready: true },
     { dest: 'blackjack', title: 'Blackjack', sub: 'Você contra o dealer, apostando moedas', art: '🂡', tint: '#2ec4b6', ready: true },
     { dest: 'duvido', title: 'Duvido!', sub: 'Jogo do mentiroso: blefe e não estoure o balão', art: '🤥', tint: '#ff5d5d', ready: true },
-    { dest: 'truco', title: 'Truco Paulista', sub: 'Com vira, contra bots', art: '🃏', tint: '#ff8a3d', ready: false },
+    { dest: 'truco', title: 'Truco Paulista', sub: 'Com vira, 1x1 ou 2x2', art: '🃏', tint: '#ff8a3d', ready: true },
     { dest: 'poker', title: 'Poker', sub: "Texas Hold'em contra bots", art: '♠️', tint: '#7b5cff', ready: false },
   ],
   online: [
