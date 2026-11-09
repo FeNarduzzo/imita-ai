@@ -9,7 +9,7 @@
 // Quem zera a mão pega o morto da dupla; para bater precisa já ter pego o morto e ter uma canastra limpa.
 // Partida até 3000 pontos.
 import { makeDeck, type Card, type Rank } from '../cards/cards';
-import { coin, type BaseState, type Config, type GameModule, type SeatInfo } from './types';
+import { coin, payWinners, type BaseState, type Config, type GameModule, type SeatInfo } from './types';
 
 export type Team = 0 | 1;
 export interface TrMeld { id: string; rank: Rank | 'B3'; cards: Card[] }
@@ -242,7 +242,7 @@ export const Tranca: GameModule<TrState, TrAction> = {
   maxSeats: 4,
   defaultConfig: { stake: 10, target: 3000 },
   configFields: [
-    { key: 'stake', label: 'Aposta da partida (vai pro pote)', type: 'select', options: [0, 10, 25, 50, 100].map((v) => ({ v, t: v ? `🪙 ${v}` : 'Grátis' })), hint: 'No 2 contra 2, a dupla que vence divide o pote.' },
+    { key: 'stake', label: 'Aposta da partida (vai pro pote)', type: 'select', options: [0, 10, 25, 50, 100].map((v) => ({ v, t: v ? `🪙 ${v}` : 'Grátis' })), hint: 'Quem vence leva o pote (no 2 contra 2, dividido; a casa fica com 5%) e ganha um prêmio — o triplo contra pessoas.' },
     { key: 'target', label: 'Pontos para vencer', type: 'select', options: [{ v: 1500, t: '1500 (rápida)' }, { v: 3000, t: '3000' }] },
   ],
   seatCheck: (n) => (n === 2 || n === 4 ? null : 'A Tranca é 1 contra 1 ou 2 contra 2: deixe 2 ou 4 lugares na mesa.'),
@@ -366,12 +366,7 @@ export const Tranca: GameModule<TrState, TrAction> = {
     if (Math.max(a, b) >= s.config.target && a !== b) {
       const wt: Team = a > b ? 0 : 1;
       let fin: TrState = { ...s, phase: 'over', over: true, winnerTeam: wt, banner: `🏆 ${teamName(s, wt)} ${s.teams[wt].length > 1 ? 'venceram' : 'venceu'} a partida!` };
-      const winners = s.teams[wt];
-      const share = Math.floor(s.pot / winners.length);
-      winners.forEach((w, i) => {
-        const amt = share + (i === 0 ? s.pot - share * winners.length : 0);
-        if (amt) fin = coin(fin, w, amt, 'pote da Tranca') as TrState;
-      });
+      fin = payWinners(fin, s.teams[wt], s.pot, s.config.target >= 3000 ? 15 : 8, 'da Tranca');
       return { state: fin, delay: 5000 };
     }
     return { state: deal(s, nextSeat(s, s.dealer)), delay: 6000 };

@@ -3,7 +3,7 @@
 // O próximo aceita (e joga as dele) ou grita "Duvido!". Quem erra enche o próprio balão;
 // a cada enchida a chance de estourar aumenta. Balão estourado = fora. Último de pé leva o pote.
 import { shuffle } from '../cards/cards';
-import { coin, type BaseState, type Config, type GameModule, type SeatInfo } from './types';
+import { coin, payWinners, type BaseState, type Config, type GameModule, type SeatInfo } from './types';
 
 export type DvRank = 'K' | 'Q' | 'A' | 'C';
 export interface DvCard { id: string; r: DvRank }
@@ -68,7 +68,7 @@ export const Duvido: GameModule<DvState, DvAction> = {
   maxSeats: 4,
   defaultConfig: { stake: 10, maxPlay: 3, balloon: 6, jokers: true },
   configFields: [
-    { key: 'stake', label: 'Aposta da partida (vai pro pote)', type: 'select', options: [0, 10, 25, 50, 100].map((v) => ({ v, t: v ? `🪙 ${v}` : 'Grátis' })) },
+    { key: 'stake', label: 'Aposta da partida (vai pro pote)', type: 'select', options: [0, 10, 25, 50, 100].map((v) => ({ v, t: v ? `🪙 ${v}` : 'Grátis' })), hint: 'Quem vence leva o pote (a casa fica com 5%) e ganha um prêmio — o triplo contra pessoas.' },
     { key: 'balloon', label: 'Tamanho do balão', type: 'select', options: [{ v: 4, t: 'Pequeno' }, { v: 6, t: 'Médio' }, { v: 8, t: 'Grande' }], hint: 'Balão pequeno estoura mais cedo — partida mais rápida.' },
     { key: 'maxPlay', label: 'Máximo de cartas por jogada', type: 'select', options: [1, 2, 3].map((v) => ({ v, t: String(v) })) },
     { key: 'jokers', label: 'Coringas (valem como a carta da mesa)', type: 'toggle' },
@@ -135,7 +135,7 @@ export const Duvido: GameModule<DvState, DvAction> = {
       if (left.length <= 1) {
         const winner = left[0];
         let fin: DvState = { ...s, phase: 'over', winner, over: true, banner: `${msg} ${name(s, winner)} venceu!` };
-        if (fin.pot) fin = coin(fin, winner, fin.pot, 'pote do Duvido') as DvState;
+        fin = payWinners(fin, [winner], fin.pot, s.round >= 3 ? 5 : 2, 'do Duvido');
         return { state: fin, delay: 2400 };
       }
       return { state: { ...s, phase: 'next', banner: msg }, delay: 2400 };

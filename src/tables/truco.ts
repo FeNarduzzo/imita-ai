@@ -6,7 +6,7 @@
 // Mão de onze: quem tem 11 vê a mão do parceiro e decide se joga (vale 3) ou corre (o outro lado ganha 1).
 // Mão de ferro: 11 a 11, todo mundo joga sem ver as próprias cartas. Partida até 12.
 import { makeDeck, RANK_NAMES, SUIT_NAMES, type Card, type Rank, type Suit } from '../cards/cards';
-import { coin, type BaseState, type Config, type GameModule, type SeatInfo } from './types';
+import { coin, payWinners, type BaseState, type Config, type GameModule, type SeatInfo } from './types';
 
 export const TC_ORDER: Rank[] = ['4', '5', '6', '7', 'Q', 'J', 'K', 'A', '2', '3'];
 export const MANILHA_SUITS: Suit[] = ['♦', '♠', '♥', '♣'];
@@ -204,7 +204,7 @@ export const Truco: GameModule<TcState, TcAction> = {
   maxSeats: 4,
   defaultConfig: { stake: 10, coberta: true, ferro: true },
   configFields: [
-    { key: 'stake', label: 'Aposta da partida (vai pro pote)', type: 'select', options: [0, 10, 25, 50, 100].map((v) => ({ v, t: v ? `🪙 ${v}` : 'Grátis' })), hint: 'No 2 contra 2, a dupla que vence divide o pote.' },
+    { key: 'stake', label: 'Aposta da partida (vai pro pote)', type: 'select', options: [0, 10, 25, 50, 100].map((v) => ({ v, t: v ? `🪙 ${v}` : 'Grátis' })), hint: 'Quem vence leva o pote (no 2 contra 2, dividido; a casa fica com 5%) e ganha um prêmio — o triplo contra pessoas.' },
     { key: 'coberta', label: 'Carta coberta (da 2ª vaza em diante)', type: 'toggle', hint: 'Joga a carta virada: não vale nada, mas esconde o seu jogo.' },
     { key: 'ferro', label: 'Mão de ferro (11 a 11 joga no escuro)', type: 'toggle' },
   ],
@@ -281,12 +281,7 @@ export const Truco: GameModule<TcState, TcAction> = {
       const wt: Team | null = s.score[0] >= TC_TARGET ? 0 : s.score[1] >= TC_TARGET ? 1 : null;
       if (wt === null) return { state: deal(s, nextSeat(s, s.dealer)), delay: 2600 };
       let fin: TcState = { ...s, phase: 'over', over: true, winnerTeam: wt, banner: `🏆 ${teamName(s, wt)} ${s.teams[wt].length > 1 ? 'venceram' : 'venceu'} a partida!` };
-      const winners = s.teams[wt];
-      const share = Math.floor(s.pot / winners.length);
-      winners.forEach((w, i) => {
-        const amt = share + (i === 0 ? s.pot - share * winners.length : 0);
-        if (amt) fin = coin(fin, w, amt, 'pote do Truco') as TcState;
-      });
+      fin = payWinners(fin, s.teams[wt], s.pot, 10, 'do Truco');
       return { state: fin, delay: 2600 };
     }
     return null;

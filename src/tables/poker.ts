@@ -5,7 +5,7 @@
 // No modo treino, todo mundo recebe 1000 fichas de mentira e nenhuma moeda muda.
 // Os blinds podem subir a cada 8 mãos; a partida acaba quando alguém fica com todas as fichas.
 import { RANKS, SUITS, makeDeck, type Card, type Rank } from '../cards/cards';
-import { coin, type BaseState, type Config, type GameModule, type SeatInfo } from './types';
+import { coin, givePrize, houseFee, type BaseState, type Config, type GameModule, type SeatInfo } from './types';
 
 export const PRACTICE_CHIPS = 1000;
 export const RISE_EVERY = 8;
@@ -198,12 +198,19 @@ function put(s: PkState, id: string, amount: number): PkState {
 function finish(s: PkState, winner: string | null): PkState {
   let f: PkState = { ...s, phase: 'over', over: true, winner, turn: null, cashout: {}, banner: winner ? `🏆 ${nm(s, winner)} ficou com todas as fichas!` : 'Fim da partida.' };
   const cash: Record<string, number> = {};
+  const feeBy: Record<string, number> = {};
+  let fee = 0;
   for (const id of order(s)) {
-    const amt = s.p[id].stack + s.p[id].total;
-    cash[id] = s.practice ? 0 : amt;
-    if (!s.practice && amt) f = coin(f, id, amt, 'fichas do Poker') as PkState;
+    const chips = s.p[id].stack + s.p[id].total;
+    // a casa fica com 5% do lucro (fichas a mais do que a entrada)
+    const f5 = s.practice ? 0 : houseFee(chips - s.p[id].paid);
+    const amt = s.practice ? 0 : chips - f5;
+    cash[id] = amt;
+    if (f5) { feeBy[id] = f5; fee += f5; }
+    if (amt) f = coin(f, id, amt, 'fichas do Poker') as PkState;
   }
-  return { ...f, cashout: cash };
+  const g = winner ? givePrize(f, [winner], s.handNo >= 10 ? 10 : 3, 'do Poker') : { s: f, prize: {} };
+  return { ...g.s, cashout: cash, payout: { pot: 0, fee, feeBy, share: cash, prize: g.prize } };
 }
 
 function startHand(s0: PkState): PkState {
@@ -349,7 +356,7 @@ export const Poker: GameModule<PkState, PkAction> = {
     {
       key: 'buyIn', label: 'Entrada (moedas viram fichas)', type: 'select',
       options: [{ v: 0, t: 'Treino' }, ...[20, 50, 100, 200].map((v) => ({ v, t: `🪙 ${v}` }))],
-      hint: 'Cada moeda vira 1 ficha; no fim, as fichas voltam a ser moedas. No treino, todo mundo ganha 1000 fichas de mentira.',
+      hint: 'Cada moeda vira 1 ficha; no fim, as fichas voltam a ser moedas (a casa fica com 5% do lucro). Quem fica com tudo ganha um prêmio. No treino, todo mundo ganha 1000 fichas de mentira.',
     },
     { key: 'pace', label: 'Blinds', type: 'select', options: [{ v: 2, t: 'Baixos' }, { v: 4, t: 'Normais' }, { v: 10, t: 'Altos' }], hint: 'Big blind de 2%, 4% ou 10% das fichas iniciais.' },
     { key: 'rise', label: `Blinds sobem a cada ${RISE_EVERY} mãos`, type: 'toggle', hint: 'Deixa a partida andar até alguém ficar com tudo.' },

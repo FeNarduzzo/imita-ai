@@ -739,3 +739,6 @@ select.auth-input { appearance: auto; }
 .tr-score-table th, .tr-score-table td { padding: 3px 6px; text-align: right; }
 .tr-score-table th:first-child, .tr-score-table td:first-child { text-align: left; color: var(--muted); }
 .tr-score-table tr:last-child td { font-weight: 800; border-top: 1px solid rgba(255, 255, 255, 0.2); }
+
+/* ---------------------------------------------------------------- mesas: prêmio e taxa da casa */
+.payout-note { display: flex; flex-direction: column; align-items: center; gap: 4px; }

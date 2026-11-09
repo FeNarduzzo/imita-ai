@@ -13,7 +13,7 @@ import { AVAILABLE, MODULES } from '../tables/modules';
 import { handName, potTotal, score7, type PkAction, type PkState } from '../tables/poker';
 import { hasCleanCanastra, isBlack3, isCanastra, isClean, isWild, teamOf as trTeamOf, TR_ORDER, type TrAction, type TrMeld, type TrState, type TrTeamScore } from '../tables/tranca';
 import { nextValue, RAISE_NAMES, TC_TARGET, teamOf, type TcCard, type TcState, type Team } from '../tables/truco';
-import type { GameId } from '../tables/types';
+import type { GameId, Payout } from '../tables/types';
 import type { RoomSeat, Self, TableApi } from '../tables/useTable';
 import { CoinPill } from './Wardrobe';
 
@@ -280,6 +280,20 @@ export function BlackjackTable({ table, onQuit }: { table: TableApi; onQuit: () 
   );
 }
 
+/** Fim de partida: prêmio da vitória e taxa da casa (5%) de quem levou o pote. */
+function PayoutNote({ p, me }: { p?: Payout | null; me: string }) {
+  if (!p) return null;
+  const prize = p.prize[me] || 0;
+  const fee = p.feeBy[me] || 0;
+  if (!prize && !fee) return null;
+  return (
+    <div className="payout-note">
+      {prize > 0 && <span className="badge lime">🏆 Prêmio da vitória +🪙 {prize}</span>}
+      {fee > 0 && <span className="small faint">Taxa da casa (5%): 🪙 {fee}</span>}
+    </div>
+  );
+}
+
 export function WaitingBanner({ table }: { table: TableApi }) {
   if (!table.isWaiting) return null;
   return <div className="waiting-banner">👀 Você está assistindo — senta na mesa assim que a rodada atual terminar.</div>;
@@ -440,7 +454,8 @@ export function DuvidoTable({ table, onQuit }: { table: TableApi; onQuit: () => 
       <div className="bj-controls">
         {v.phase === 'over' ? (
           <div className="stack" style={{ alignItems: 'center', gap: 8 }}>
-            <div className="title-m">🏆 {v.seats.find((s) => s.id === v.winner)?.name} venceu{v.pot ? ` e levou 🪙 ${v.pot}` : ''}!</div>
+            <div className="title-m">🏆 {v.winner === me ? 'Você venceu' : `${v.seats.find((s) => s.id === v.winner)?.name} venceu`}{v.payout?.share[v.winner ?? ''] ? ` e levou 🪙 ${v.payout.share[v.winner ?? '']}` : ''}!</div>
+            <PayoutNote p={v.payout} me={me} />
             {table.isLeader ? <button className="btn big pink" onClick={() => table.command({ cmd: 'lobby' })}>Nova partida</button> : <div className="status">Esperando o líder 👑…</div>}
           </div>
         ) : mine && !mine.out ? (
@@ -533,7 +548,8 @@ export function TrucoTable({ table, onQuit }: { table: TableApi; onQuit: () => v
     controls = (
       <div className="stack" style={{ alignItems: 'center', gap: 8, textAlign: 'center' }}>
         <div className="title-m">{won ? (n === 4 ? '🏆 Sua dupla venceu!' : '🏆 Você venceu!') : `🏆 ${names(them)} ${n === 4 ? 'venceram' : 'venceu'}`}</div>
-        {v.pot > 0 && <div className="small">{won ? `Pote de 🪙 ${v.pot}${n === 4 ? ' dividido entre vocês dois' : ' é seu'}!` : `O pote de 🪙 ${v.pot} ficou com eles.`}</div>}
+        {v.pot > 0 && <div className="small">{won ? `Você leva 🪙 ${v.payout?.share[me] ?? 0} do pote de 🪙 ${v.pot}${n === 4 ? ' (dividido com a dupla)' : ''}.` : `O pote de 🪙 ${v.pot} ficou com eles.`}</div>}
+        <PayoutNote p={v.payout} me={me} />
         {table.isLeader ? <button className="btn big pink" onClick={() => table.command({ cmd: 'lobby' })}>Nova partida</button> : <div className="status">Esperando o líder 👑…</div>}
       </div>
     );
@@ -736,7 +752,8 @@ export function PokerTable({ table, onQuit }: { table: TableApi; onQuit: () => v
     controls = (
       <div className="stack" style={{ alignItems: 'center', gap: 8, textAlign: 'center' }}>
         <div className="title-m">{v.winner ? (v.winner === me ? '🏆 Você ficou com todas as fichas!' : `🏆 ${name(v.winner)} ficou com todas as fichas`) : 'Mesa encerrada'}</div>
-        <div className="small">{v.practice ? 'Era treino: nenhuma moeda mudou.' : cash ? `Suas ${fmt(cash)} fichas viraram 🪙 ${fmt(cash)}.` : 'Você terminou sem fichas.'}</div>
+        <div className="small">{v.practice ? 'Era treino: as fichas não valem moedas.' : cash ? `Suas ${fmt(cash + (v.payout?.feeBy[me] ?? 0))} fichas viraram 🪙 ${fmt(cash)}.` : 'Você terminou sem fichas.'}</div>
+        <PayoutNote p={v.payout} me={me} />
         {table.isLeader ? <button className="btn big pink" onClick={() => table.command({ cmd: 'lobby' })}>Nova partida</button> : <div className="status">Esperando o líder 👑…</div>}
       </div>
     );
@@ -953,7 +970,8 @@ export function TrancaTable({ table, onQuit }: { table: TableApi; onQuit: () => 
     controls = (
       <div className="stack" style={{ alignItems: 'center', gap: 8, textAlign: 'center' }}>
         <div className="title-m">{won ? (n === 4 ? '🏆 Sua dupla venceu!' : '🏆 Você venceu!') : `🏆 ${label(them)} ${n === 4 ? 'venceram' : 'venceu'}`}</div>
-        <div className="small">{fmtPts(v.score[us])} × {fmtPts(v.score[them])}{v.pot > 0 ? (won ? ` · pote de 🪙 ${v.pot}${n === 4 ? ' dividido entre vocês' : ' é seu'}!` : ` · o pote de 🪙 ${v.pot} ficou com eles`) : ''}</div>
+        <div className="small">{fmtPts(v.score[us])} × {fmtPts(v.score[them])}{v.pot > 0 ? (won ? ` · você leva 🪙 ${v.payout?.share[me] ?? 0} do pote de 🪙 ${v.pot}` : ` · o pote de 🪙 ${v.pot} ficou com eles`) : ''}</div>
+        <PayoutNote p={v.payout} me={me} />
         {table.isLeader ? <button className="btn big pink" onClick={() => table.command({ cmd: 'lobby' })}>Nova partida</button> : <div className="status">Esperando o líder 👑…</div>}
       </div>
     );
