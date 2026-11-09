@@ -808,3 +808,8 @@ select.auth-input { appearance: auto; }
 .stage-char { position: relative; z-index: 1; width: 78%; transform-origin: 50% 100%; transform: scale(calc(1 + var(--lvl, 0) * 0.09)) rotate(calc(var(--lvl, 0) * -4deg)); transition: transform 0.08s linear; }
 .stage-char svg { display: block; width: 100%; height: auto; }
 .stage-char .avatar { margin: 0 auto 18px; }
+
+/* ---------------------------------------------------------------- sala online: pacotes escolhidos pelo líder */
+.pack-chip { padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 600; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pack-chip.on { background: rgba(255, 210, 63, 0.16); border-color: var(--yellow); color: var(--yellow); }
+.pack-chip:focus-visible { outline: 2px solid var(--cyan); }

@@ -341,7 +341,7 @@ export function Wheel({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit: 
 
 // ---------------------------------------------------------------- final
 
-export function Final({ api, g, online, myReward }: { api: GameApi; g: GameState; online?: { host: boolean }; myReward?: number | null }) {
+export function Final({ api, g, online, myReward }: { api: GameApi; g: GameState; online?: { host: boolean; owner?: boolean }; myReward?: number | null }) {
   const sorted = [...g.players].sort((a, b) => (g.totals[b.id] || 0) - (g.totals[a.id] || 0));
   const podium = [sorted[1], sorted[0], sorted[2]];
   const heights = [96, 140, 70];
@@ -390,7 +390,7 @@ export function Final({ api, g, online, myReward }: { api: GameApi; g: GameState
       </div>
       <div className="grow" />
       <div className="row">
-        <button className="btn ghost grow" onClick={api.toMenu}>{online ? (online.host ? 'Encerrar sala' : 'Sair da sala') : 'Menu'}</button>
+        <button className="btn ghost grow" onClick={api.toMenu}>{online ? (online.owner ?? online.host ? 'Encerrar sala' : 'Sair da sala') : 'Menu'}</button>
         {(!online || online.host) && <button className="btn pink grow" onClick={() => { sfx('go'); api.startGame(); }}>Jogar de novo</button>}
       </div>
     </div>

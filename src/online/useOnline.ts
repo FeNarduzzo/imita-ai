@@ -12,7 +12,7 @@ import {
 import { addCoins, rewardFor, type Look } from '../game/character';
 import { XP_RULES } from '../game/levels';
 import { reportXp } from '../game/progress';
-import { EFFECT_NAMES, newPlayer, SLOTS, shuffle, type GameState, type Player, type SlotId } from '../game/model';
+import { EFFECT_NAMES, newPlayer, SLOTS, shuffle, type GameState, type Mode, type Player, type SlotId } from '../game/model';
 import { loadRecent, pushRecent } from '../game/storage';
 import type { GameApi } from '../game/useGame';
 import { decodeAudio, encodeTake, encodeTarget, type NetAudio } from './codec';
@@ -23,11 +23,23 @@ export type RecMode = 'together' | 'turns';
 export interface Seat extends Player { clientId: string; online: boolean }
 export interface SoundMeta { name: string; emoji?: string; image?: string | null }
 export interface Me { name: string; emoji: string; look?: Look; profileId?: string }
+/** Regras da partida online, escolhidas pelo líder da sala. */
+export interface OnlineConfig { rounds: number; mode: Mode; packIds: string[]; wheel: boolean; mystery: boolean }
+export const ROUND_OPTIONS = [3, 5, 8, 10, 12];
 
 /** Estado que o anfitrião replica para todos. */
 export interface Shared {
   code: string;
+  /** O aparelho que roda a sala (dá as notas e manda os áudios). */
   hostId: string;
+  /** Quem comanda a sala: escolhe as regras, começa e avança. Pode passar a coroa 👑 para outra pessoa. */
+  leaderId: string;
+  config: OnlineConfig;
+  /** Pacotes que o anfitrião tem (o líder escolhe entre eles). */
+  packs: { id: string; name: string; count: number }[];
+  /** Quem chega com a partida em andamento assiste e entra no começo da próxima rodada. */
+  allowLateJoin: boolean;
+  waiting: Seat[];
   phase: OnlinePhase;
   recMode: RecMode;
   seats: Seat[];
@@ -207,7 +219,35 @@ export function useOnline(local: GameApi) {
     if (!online.length) startReveal();
   }, [publish, startReveal]);
 
+  /** Quem chegou no meio da partida entra agora, no começo da rodada, com 0 pontos. */
+  const admitWaiting = () => {
+    const s = sharedRef.current;
+    const g = gameRef.current;
+    if (!s || !g || !s.waiting.length) return;
+    const enter = s.waiting.filter((w) => w.online).slice(0, Math.max(0, MAX_SEATS - s.seats.length));
+    if (!enter.length) return;
+    const players = [...g.players];
+    const totals = { ...g.totals };
+    const streak = { ...g.streak };
+    const bestStreak = { ...g.bestStreak };
+    const seats = [...s.seats];
+    for (const w of enter) {
+      const t0 = players.filter((p) => p.team === 0).length;
+      const t1 = players.filter((p) => p.team === 1).length;
+      const team: 0 | 1 = g.settings.mode === 'teams' ? (t0 <= t1 ? 0 : 1) : w.team;
+      seats.push({ ...w, team });
+      players.push({ id: w.id, name: w.name, emoji: w.emoji, color: w.color, team, look: w.look });
+      totals[w.id] = 0;
+      streak[w.id] = 0;
+      bestStreak[w.id] = 0;
+    }
+    gameRef.current = { ...g, players, totals, streak, bestStreak };
+    const ids = new Set(enter.map((w) => w.id));
+    sharedRef.current = { ...s, seats, waiting: s.waiting.filter((w) => !ids.has(w.id)), note: `👋 ${enter.map((w) => w.name).join(', ')} ${enter.length > 1 ? 'entraram' : 'entrou'} na partida!` };
+  };
+
   const beginRound = useCallback((idx: number) => {
+    admitWaiting();
     const g = gameRef.current!;
     const sound = g.plan[idx];
     const anchors = pickAnchors(anchorPool.current, sound?.id);
@@ -288,25 +328,98 @@ export function useOnline(local: GameApi) {
     beginRound(g.round.index + 1);
   }, [publish, beginRound]);
 
-  const hostStart = useCallback(async () => {
-    const s = sharedRef.current;
+  /** Começa a partida com as regras escolhidas pelo líder. Devolve o erro (ou null). */
+  const hostStart = useCallback(async (): Promise<string | null> => {
+    let s = sharedRef.current;
     const L = localRef.current;
-    if (!s) return;
+    if (!s || (s.phase !== 'lobby' && s.phase !== 'final')) return null;
     setError(null);
-    const pool = L.packs.filter((p) => L.settings.packIds.includes(p.id)).flatMap((p) => p.sounds);
-    const players: Player[] = s.seats.map(({ id, name, emoji, color, team, look }) => ({ id, name, emoji, color, team, look }));
-    const invalid = validateStart(L.settings, players, pool.length, true);
-    if (invalid) return setError(invalid);
+    // Quem estava esperando entra já na nova partida.
+    if (s.waiting.length) {
+      s = { ...s, seats: [...s.seats, ...s.waiting.filter((w) => w.online)].slice(0, MAX_SEATS), waiting: [] };
+      sharedRef.current = s;
+    }
+    const seats = s.seats.filter((x) => x.online);
+    const settings = { ...L.settings, ...s.config };
+    const pool = L.packs.filter((p) => settings.packIds.includes(p.id)).flatMap((p) => p.sounds);
+    const players: Player[] = seats.map(({ id, name, emoji, color, team, look }) => ({ id, name, emoji, color, team, look }));
+    const invalid = validateStart(settings, players, pool.length, true);
+    if (invalid) { setError(invalid); return invalid; }
     await unlockAudio();
     const micErr = await checkMic();
-    if (micErr) return setError(micErr);
-    const plan = makePlan(L.settings, players, pool, new Set(loadRecent()));
+    if (micErr) { setError(micErr); return `O anfitrião precisa liberar o microfone: ${micErr}`; }
+    const plan = makePlan(settings, players, pool, new Set(loadRecent()));
     pushRecent(plan.filter((x): x is SoundInfo => !!x).map((x) => x.id));
     const builtin = L.packs.find((p) => p.id === BUILTIN_ID)?.sounds || [];
     anchorPool.current = pool.length >= ANCHORS + 1 ? pool : [...pool, ...builtin];
-    gameRef.current = newGame(L.settings, players, plan);
+    gameRef.current = newGame(settings, players, plan);
+    sharedRef.current = { ...s, seats };
     beginRound(0);
+    return null;
   }, [beginRound]);
+
+  /** Anfitrião: segue a rodada sem quem não gravou. */
+  const hostSkip = useCallback(() => {
+    const s = sharedRef.current;
+    const g = gameRef.current;
+    if (!s || !g || s.phase !== 'play') return;
+    publish({ submitted: [...new Set([...s.submitted, ...g.round.order])], active: [] });
+    Promise.all([...scoring.current.values()]).then(() => startReveal());
+  }, [publish, startReveal]);
+
+  /** Comandos do líder (validados aqui no anfitrião). Devolve o erro para mostrar, ou null. */
+  const hostCommand = useCallback(async (from: string, cmd: Record<string, unknown>): Promise<string | null> => {
+    const s = sharedRef.current;
+    if (!s) return 'Sem sala.';
+    if (from !== s.leaderId) return 'Só o líder da sala 👑 pode fazer isso.';
+    const setup = s.phase === 'lobby' || s.phase === 'final';
+    switch (cmd.cmd) {
+      case 'config': {
+        if (!setup) return 'Mude as regras antes de começar.';
+        const c = { ...s.config, ...(cmd.config as Partial<OnlineConfig>) };
+        const have = new Set(s.packs.map((p) => p.id));
+        publish({
+          config: {
+            rounds: ROUND_OPTIONS.includes(Number(c.rounds)) ? Number(c.rounds) : s.config.rounds,
+            mode: c.mode === 'teams' ? 'teams' : 'classic',
+            packIds: (Array.isArray(c.packIds) ? c.packIds : s.config.packIds).filter((id) => have.has(id)),
+            wheel: !!c.wheel,
+            mystery: !!c.mystery,
+          },
+        });
+        return null;
+      }
+      case 'recMode':
+        if (!setup) return 'Mude antes de começar.';
+        publish({ recMode: cmd.value === 'turns' ? 'turns' : 'together' });
+        return null;
+      case 'team':
+        if (!setup) return null;
+        publish({ seats: s.seats.map((x) => (x.id === cmd.seatId ? { ...x, team: x.team ? 0 : 1 } : x)) });
+        return null;
+      case 'lateJoin':
+        publish({ allowLateJoin: !!cmd.value });
+        return null;
+      case 'leader': {
+        const target = s.seats.find((x) => x.id === cmd.seatId && x.online);
+        if (!target) return 'Essa pessoa não está na sala.';
+        publish({ leaderId: target.id, note: `👑 ${target.name} agora é o líder da sala` });
+        return null;
+      }
+      case 'start':
+        return hostStart();
+      case 'next':
+        nextReveal();
+        return null;
+      case 'continue':
+        continueAfterRound();
+        return null;
+      case 'skip':
+        hostSkip();
+        return null;
+    }
+    return 'Comando desconhecido.';
+  }, [publish, hostStart, nextReveal, continueAfterRound, hostSkip]);
 
   const onHostMessage = useCallback((connId: string, msg: Record<string, unknown>) => {
     const s = sharedRef.current;
@@ -315,8 +428,24 @@ export function useOnline(local: GameApi) {
     if (msg.t === 'hello') {
       const cid = String(msg.clientId || '');
       let seat = s.seats.find((x) => x.clientId === cid);
+      let waitingSeat = s.waiting.find((x) => x.clientId === cid);
+      if (!seat && !waitingSeat && s.phase !== 'lobby') {
+        // Partida em andamento: entra na fila e senta no começo da próxima rodada.
+        if (!s.allowLateJoin) { net.send(connId, { t: 'reject', reason: 'O líder fechou a sala para quem chega no meio da partida.' }); return; }
+        if (s.seats.length + s.waiting.length >= MAX_SEATS) { net.send(connId, { t: 'reject', reason: 'A sala está cheia.' }); return; }
+        const base = newPlayer([...s.seats, ...s.waiting], String(msg.name || 'Jogador').slice(0, 14));
+        waitingSeat = { ...base, look: (msg.look as Look | undefined) ?? base.look, clientId: cid, online: true };
+        publish({ waiting: [...s.waiting, waitingSeat] });
+      } else if (waitingSeat) {
+        publish({ waiting: s.waiting.map((x) => (x.id === waitingSeat!.id ? { ...x, online: true } : x)) });
+      }
+      if (waitingSeat) {
+        seatByConn.current.set(connId, waitingSeat.id);
+        net.send(connId, { t: 'welcome', you: waitingSeat.id, shared: sharedRef.current as unknown as Record<string, unknown> });
+        sfx('pop');
+        return;
+      }
       if (!seat) {
-        if (s.phase !== 'lobby') { net.send(connId, { t: 'reject', reason: 'A partida já começou. Espere a próxima.' }); return; }
         if (s.seats.length >= MAX_SEATS) { net.send(connId, { t: 'reject', reason: 'A sala está cheia.' }); return; }
         const base = newPlayer(s.seats, String(msg.name || 'Jogador').slice(0, 14));
         const emoji = s.seats.some((x) => x.emoji === msg.emoji) ? base.emoji : String(msg.emoji || base.emoji);
@@ -337,6 +466,10 @@ export function useOnline(local: GameApi) {
     }
     const pid = seatByConn.current.get(connId);
     if (!pid) return;
+    if (msg.t === 'cmd') {
+      hostCommand(pid, msg).then((err) => { if (err) net.send(connId, { t: 'toast', text: err }); });
+      return;
+    }
     const round = gameRef.current?.round.index;
     if (msg.t === 'take' && msg.round === round) {
       const audio = msg.audio as NetAudio;
@@ -347,14 +480,17 @@ export function useOnline(local: GameApi) {
     } else if (msg.t === 'wheel' && msg.round === round) {
       receiveWheel(pid, msg.slot as SlotId, msg.target as string | undefined);
     }
-  }, [publish, receiveTake, receiveChallenge, receiveWheel]);
+  }, [publish, receiveTake, receiveChallenge, receiveWheel, hostCommand]);
 
   const onHostLeave = useCallback((connId: string) => {
     const pid = seatByConn.current.get(connId);
     seatByConn.current.delete(connId);
     const s = sharedRef.current;
     if (!pid || !s) return;
-    if (s.phase === 'lobby') publish({ seats: s.seats.filter((x) => x.id !== pid) });
+    // Se o líder sair, a coroa volta para o anfitrião.
+    if (s.leaderId === pid) publish({ leaderId: s.hostId, note: '👑 O líder saiu: o anfitrião voltou a comandar a sala' });
+    if (s.waiting.some((x) => x.id === pid)) { publish({ waiting: sharedRef.current!.waiting.filter((x) => x.id !== pid) }); return; }
+    if (s.phase === 'lobby') publish({ seats: sharedRef.current!.seats.filter((x) => x.id !== pid) });
     else {
       publish({ seats: s.seats.map((x) => (x.id === pid ? { ...x, online: false } : x)) });
       if (s.phase === 'play') checkComplete();
@@ -382,8 +518,13 @@ export function useOnline(local: GameApi) {
       hostNet.current = net;
       const base = newPlayer([], me.name);
       const hostSeat: Seat = { ...base, emoji: me.emoji, look: me.look ?? base.look, clientId: clientId(), online: true };
+      const L = localRef.current;
       const s: Shared = {
-        code, hostId: hostSeat.id, phase: 'lobby', recMode: 'together', seats: [hostSeat], game: null,
+        code, hostId: hostSeat.id, leaderId: hostSeat.id,
+        config: { rounds: L.settings.rounds, mode: L.settings.mode, packIds: L.settings.packIds, wheel: L.settings.wheel, mystery: L.settings.mystery },
+        packs: L.packs.filter((p) => p.sounds.length).map((p) => ({ id: p.id, name: p.name, count: p.sounds.length })),
+        allowLateJoin: true, waiting: [],
+        phase: 'lobby', recMode: 'together', seats: [hostSeat], game: null,
         active: [], submitted: [], decoys: [], soundSeq: 0, note: null, waitingSince: 0,
       };
       sharedRef.current = s;
@@ -440,6 +581,8 @@ export function useOnline(local: GameApi) {
         const map: Record<string, { samples: Float32Array; sr: number }> = {};
         for (const it of items) map[it.pid] = { samples: decodeAudio(it.audio), sr: it.audio.sr };
         setTakeAudio(map);
+      } else if (m.t === 'toast') {
+        setError(String(m.text || ''));
       } else if (m.t === 'reject') {
         setConnecting(null);
         setError(String(m.reason || 'Não deu para entrar.'));
@@ -483,23 +626,25 @@ export function useOnline(local: GameApi) {
     else guestNet.current?.send({ t: 'wheel', round: roundIdx, slot, target: target ?? null });
   }, [myId, isHost, receiveWheel, roundIdx]);
 
-  const setRecMode = useCallback((recMode: RecMode) => { if (isHost) publish({ recMode }); }, [isHost, publish]);
+  const isLeader = !!shared && !!myId && shared.leaderId === myId;
+  const isWaiting = !!shared && !!myId && shared.waiting.some((w) => w.id === myId);
 
-  const toggleTeam = useCallback((pid: string) => {
-    const s = sharedRef.current;
-    if (!isHost || !s || s.phase !== 'lobby') return;
-    publish({ seats: s.seats.map((x) => (x.id === pid ? { ...x, team: x.team ? 0 : 1 } : x)) });
-  }, [isHost, publish]);
+  /** Ação do líder: no anfitrião roda aqui mesmo; num convidado vai como pedido para o anfitrião. */
+  const command = useCallback((cmd: Record<string, unknown>) => {
+    if (!myId) return;
+    if (isHost) hostCommand(myId, cmd).then((err) => { if (err) setError(err); });
+    else guestNet.current?.send({ t: 'cmd', ...cmd });
+  }, [myId, isHost, hostCommand]);
 
-  /** Anfitrião: segue a rodada sem quem não gravou. */
-  const skipMissing = useCallback(() => {
-    const s = sharedRef.current;
-    const g = gameRef.current;
-    if (!isHost || !s || !g || s.phase !== 'play') return;
-    const all = g.round.order;
-    publish({ submitted: [...new Set([...s.submitted, ...all])], active: [] });
-    Promise.all([...scoring.current.values()]).then(() => startReveal());
-  }, [isHost, publish, startReveal]);
+  const setRecMode = useCallback((value: RecMode) => command({ cmd: 'recMode', value }), [command]);
+  const toggleTeam = useCallback((seatId: string) => command({ cmd: 'team', seatId }), [command]);
+  const setConfig = useCallback((config: Partial<OnlineConfig>) => command({ cmd: 'config', config }), [command]);
+  const setLateJoin = useCallback((value: boolean) => command({ cmd: 'lateJoin', value }), [command]);
+  const passLeader = useCallback((seatId: string) => command({ cmd: 'leader', seatId }), [command]);
+  const leaderStart = useCallback(() => { setError(null); command({ cmd: 'start' }); }, [command]);
+  const leaderNext = useCallback(() => command({ cmd: 'next' }), [command]);
+  const leaderContinue = useCallback(() => command({ cmd: 'continue' }), [command]);
+  const skipMissing = useCallback(() => command({ cmd: 'skip' }), [command]);
 
   const leave = useCallback(() => {
     timers.current.forEach(clearTimeout);
@@ -571,8 +716,9 @@ export function useOnline(local: GameApi) {
   return {
     role, isHost, shared, myId, view, stage, setStage, connecting, error, setError, ended, targetMeta, takesReady, myReward,
     getTarget: () => targetRef.current,
-    createRoom, joinRoom, leave, hostStart, setRecMode, toggleTeam, skipMissing,
-    nextReveal, continueAfterRound, submitTake, submitChallenge, sendWheel,
+    isLeader, isWaiting, setConfig, setLateJoin, passLeader,
+    createRoom, joinRoom, leave, hostStart: leaderStart, setRecMode, toggleTeam, skipMissing,
+    nextReveal: leaderNext, continueAfterRound: leaderContinue, submitTake, submitChallenge, sendWheel,
   };
 }
 

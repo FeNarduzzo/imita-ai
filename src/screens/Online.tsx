@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { sfx, unlockAudio } from '../audio/engine';
-import { Avatar, Logo, Seg } from '../components/ui';
+import { Avatar, Logo, Seg, Toggle } from '../components/ui';
 import { TEAMS, type GameState, type Player } from '../game/model';
 import type { GameApi } from '../game/useGame';
-import { type Me, type OnlineApi } from '../online/useOnline';
+import { ROUND_OPTIONS, type Me, type OnlineApi } from '../online/useOnline';
 import { Final, Reveal, RoundEnd, Wheel } from './Results';
 import { Create, Draw, Listen, Record, TopBar } from './Turn';
 
@@ -89,15 +89,19 @@ export function Lobby({ api, online, onQuit }: { api: GameApi; online: OnlineApi
     } catch { /* cancelado */ }
     try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch { /* ok */ }
   };
-  const st = api.settings;
-  const packs = api.packs.filter((p) => st.packIds.includes(p.id));
-  const sounds = packs.reduce((n, p) => n + p.sounds.length, 0);
-  const teams = online.isHost ? st.mode === 'teams' : false;
+  void api;
+  const leader = online.isLeader;
+  const c = s.config;
+  const leaderName = s.seats.find((x) => x.id === s.leaderId)?.name;
+  const chosen = s.packs.filter((p) => c.packIds.includes(p.id));
+  const sounds = chosen.reduce((n, p) => n + p.count, 0);
+  const teams = c.mode === 'teams';
+  const togglePack = (id: string) => online.setConfig({ packIds: c.packIds.includes(id) ? c.packIds.filter((x) => x !== id) : [...c.packIds, id] });
   return (
     <div className="screen">
       <div className="topbar">
         <button className="icon-btn" aria-label="Sair da sala" onClick={onQuit}>✕</button>
-        <span className="round-chip">{online.isHost ? 'Você é o anfitrião' : 'Sala de espera'}</span>
+        <span className="round-chip">{leader ? 'Você é o líder 👑' : online.isHost ? 'Você é o anfitrião' : 'Sala de espera'}</span>
         <span style={{ width: 44 }} />
       </div>
 
@@ -115,12 +119,15 @@ export function Lobby({ api, online, onQuit }: { api: GameApi; online: OnlineApi
           {s.seats.map((p) => (
             <div key={p.id} className="player-row" style={{ opacity: p.online ? 1 : 0.45 }}>
               <Avatar p={p} />
-              <b className="grow">{p.name}{p.id === online.myId ? ' (você)' : ''}</b>
+              <b className="grow" style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.id === s.leaderId ? '👑 ' : ''}{p.name}{p.id === online.myId ? ' (você)' : ''}</b>
               {p.id === s.hostId && <span className="badge yellow">anfitrião</span>}
-              {teams && (
+              {teams && (leader ? (
                 <button className="team-chip" style={{ color: TEAMS[p.team].color }} onClick={() => online.toggleTeam(p.id)}>
                   {TEAMS[p.team].emoji} {p.team ? 'Gelo' : 'Fogo'}
                 </button>
+              ) : <span className="team-chip" style={{ color: TEAMS[p.team].color }}>{TEAMS[p.team].emoji}</span>)}
+              {leader && p.id !== online.myId && p.online && (
+                <button className="btn ghost sm" title={`Passar a liderança para ${p.name}`} aria-label={`Passar a liderança para ${p.name}`} onClick={() => online.passLeader(p.id)}>👑</button>
               )}
             </div>
           ))}
@@ -128,33 +135,53 @@ export function Lobby({ api, online, onQuit }: { api: GameApi; online: OnlineApi
       </section>
 
       <section className="card stack">
-        <div className="label" style={{ fontWeight: 600 }}>Gravação</div>
-        {online.isHost ? (
-          <Seg label="Gravação" value={s.recMode} onChange={(v) => online.setRecMode(v)} options={[{ v: 'together', t: 'Todos juntos' }, { v: 'turns', t: 'Um de cada vez' }]} />
+        <div className="row between"><div className="caps">Regras</div>{!leader && <span className="small faint">👑 {leaderName} escolhe</span>}</div>
+        {leader ? (
+          <>
+            <div className="label" style={{ fontWeight: 600 }}>Rodadas</div>
+            <Seg label="Rodadas" value={c.rounds} onChange={(v) => online.setConfig({ rounds: v })} options={ROUND_OPTIONS.map((v) => ({ v, t: String(v) }))} />
+            <div className="label" style={{ fontWeight: 600 }}>Modo</div>
+            <Seg label="Modo" value={c.mode} onChange={(v) => online.setConfig({ mode: v })} options={[{ v: 'classic', t: '🎤 Cada um por si' }, { v: 'teams', t: '🔥❄️ Times' }]} />
+            <div className="label" style={{ fontWeight: 600 }}>Gravação</div>
+            <Seg label="Gravação" value={s.recMode} onChange={(v) => online.setRecMode(v)} options={[{ v: 'together', t: 'Todos juntos' }, { v: 'turns', t: 'Um de cada vez' }]} />
+            <span className="small faint">
+              {s.recMode === 'together'
+                ? 'Todo mundo imita ao mesmo tempo, cada um no seu celular. Ideal quando cada um está num lugar.'
+                : 'Um imita por vez enquanto os outros ficam quietos. Use quando estiverem na mesma sala.'}
+            </span>
+            <div className="row between"><span className="label" style={{ fontWeight: 600 }}>Pacotes de som</span><span className="caps">{sounds} sons</span></div>
+            <div className="row wrap" style={{ gap: 6 }}>
+              {s.packs.map((p) => (
+                <button key={p.id} className={`pack-chip ${c.packIds.includes(p.id) ? 'on' : ''}`} aria-pressed={c.packIds.includes(p.id)} onClick={() => togglePack(p.id)}>
+                  {c.packIds.includes(p.id) ? '✓ ' : ''}{p.name}
+                </button>
+              ))}
+            </div>
+            <div className="rule"><span className="label">Roleta entre as rodadas</span><Toggle label="Roleta" on={c.wheel} onChange={(v) => online.setConfig({ wheel: v })} /></div>
+            <div className="rule"><span className="label">Sons misteriosos</span><Toggle label="Sons misteriosos" on={c.mystery} onChange={(v) => online.setConfig({ mystery: v })} /></div>
+            <div className="rule">
+              <div>
+                <div className="label">Deixar entrar com a partida em andamento</div>
+                <div className="hint small faint">Quem chega no meio assiste e entra no começo da próxima rodada, com 0 pontos.</div>
+              </div>
+              <Toggle label="Entrar no meio" on={s.allowLateJoin} onChange={(v) => online.setLateJoin(v)} />
+            </div>
+          </>
         ) : (
-          <b>{s.recMode === 'together' ? 'Todos juntos' : 'Um de cada vez'}</b>
+          <p className="small muted" style={{ margin: 0 }}>
+            {c.rounds} rodadas · {c.mode === 'teams' ? 'Times' : 'Cada um por si'} · {s.recMode === 'together' ? 'todos juntos' : 'um de cada vez'} · {chosen.length} {chosen.length === 1 ? 'pacote' : 'pacotes'} ({sounds} sons){c.wheel ? ' · roleta' : ''}{c.mystery ? ' · sons misteriosos' : ''}{s.allowLateJoin ? ' · dá para entrar no meio' : ''}
+          </p>
         )}
-        <span className="small faint">
-          {s.recMode === 'together'
-            ? 'Todo mundo imita ao mesmo tempo, cada um no seu celular. Ideal quando cada um está num lugar.'
-            : 'Um imita por vez enquanto os outros ficam quietos. Use quando estiverem na mesma sala.'}
-        </span>
       </section>
-
-      {online.isHost && (
-        <p className="small muted" style={{ margin: 0 }}>
-          {st.rounds} rodadas · {packs.length} {packs.length === 1 ? 'pacote' : 'pacotes'} ({sounds} sons) · {st.mode === 'teams' ? 'Times' : 'Clássico'} — as regras vêm da tela inicial.
-        </p>
-      )}
 
       <div className="grow" />
       {online.error && <div className="error" role="alert">{online.error}</div>}
-      {online.isHost ? (
+      {leader ? (
         <button className="btn big pink" disabled={s.seats.filter((x) => x.online).length < 2} onClick={() => { sfx('go'); online.hostStart(); }}>
           {s.seats.length < 2 ? 'Esperando alguém entrar…' : `COMEÇAR (${s.seats.length} jogadores)`}
         </button>
       ) : (
-        <div className="row muted" style={{ justifyContent: 'center', minHeight: 64 }}><div className="spinner" style={{ width: 22, height: 22, borderWidth: 3 }} /> Esperando o anfitrião começar…</div>
+        <div className="row muted" style={{ justifyContent: 'center', minHeight: 64 }}><div className="spinner" style={{ width: 22, height: 22, borderWidth: 3 }} /> Esperando 👑 {leaderName} começar…</div>
       )}
     </div>
   );
@@ -168,7 +195,7 @@ function Waiting({ g, online, onQuit, title, emoji }: { g: GameState; online: On
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
   const showList = s.phase === 'play';
   const anyOffline = g.round.order.some((pid) => !s.submitted.includes(pid) && s.seats.find((x) => x.id === pid)?.online === false);
-  const canSkip = online.isHost && s.phase === 'play' && (anyOffline || now - s.waitingSince > 25000);
+  const canSkip = online.isLeader && s.phase === 'play' && (anyOffline || now - s.waitingSince > 25000);
   return (
     <div className="screen">
       <TopBar g={g} onQuit={onQuit} />
@@ -219,11 +246,16 @@ export function OnlineGame({ api, online, onQuit }: { api: GameApi; online: Onli
   if (!view) return <div className="screen center"><div className="spinner" /></div>;
   const mine: GameState = { ...view, round: { ...view.round, order: [me], turn: 0 } };
   const nameOf = (id?: string) => view.players.find((p) => p.id === id)?.name || 'alguém';
-  const host = { host: online.isHost };
+  // Quem comanda a revelação e o fim da rodada é o líder 👑 (não necessariamente o anfitrião).
+  const host = { host: online.isLeader };
   const r = view.round;
   const key = `${s.phase}-${r.index}-${online.stage}-${s.active.join(',')}-${s.soundSeq}`;
 
   let screen;
+  if (online.isWaiting) {
+    // Chegou com a partida em andamento: assiste e entra no começo da próxima rodada.
+    return <Waiting g={view} online={online} onQuit={onQuit} emoji="👀" title="Você entra no começo da próxima rodada. Enquanto isso, acompanhe o placar!" />;
+  }
   switch (s.phase) {
     case 'draw':
       screen = (
@@ -255,7 +287,7 @@ export function OnlineGame({ api, online, onQuit }: { api: GameApi; online: Onli
         : <Waiting g={view} online={online} onQuit={onQuit} emoji="📡" title="Recebendo as imitações…" />;
       break;
     case 'roundEnd':
-      screen = <RoundEnd api={adapter} g={view} onQuit={onQuit} readOnly={!online.isHost} />;
+      screen = <RoundEnd api={adapter} g={view} onQuit={onQuit} readOnly={!online.isLeader} />;
       break;
     case 'wheel':
       screen = r.spinnerId === me
@@ -263,7 +295,7 @@ export function OnlineGame({ api, online, onQuit }: { api: GameApi; online: Onli
         : <Waiting g={view} online={online} onQuit={onQuit} emoji="🎡" title={`${nameOf(r.spinnerId)} está girando a roleta…`} />;
       break;
     case 'final':
-      screen = <Final api={adapter} g={view} online={host} myReward={online.myReward} />;
+      screen = <Final api={adapter} g={view} online={{ host: online.isLeader, owner: online.isHost }} myReward={online.myReward} />;
       break;
     default:
       screen = null;

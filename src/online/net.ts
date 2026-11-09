@@ -2,8 +2,12 @@
 // aparelhos; o jogo e os áudios vão direto de um para o outro.
 import Peer, { type DataConnection } from 'peerjs';
 
-export const ROOM_PREFIX = 'imita-ai-sala-v1-';
-export const TABLE_PREFIX = 'imita-ai-mesa-v1-';
+// v2 (versão 1.1): salas com líder 👑, entrada no meio e sinal de vida. Versões diferentes não se misturam.
+export const ROOM_PREFIX = 'imita-ai-sala-v2-';
+export const TABLE_PREFIX = 'imita-ai-mesa-v2-';
+/** Sinal de vida: cada lado manda um "ping" a cada 4 s; 30 s sem nada = a outra ponta saiu. */
+const BEAT_MS = 4000;
+const GONE_MS = 30000;
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ';
 
 export const makeCode = () => Array.from({ length: 4 }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join('');
@@ -29,6 +33,8 @@ export class HostNet {
   code = '';
   constructor(private prefix = ROOM_PREFIX) {}
   private conns = new Map<string, DataConnection>();
+  private seen = new Map<string, number>();
+  private beat: ReturnType<typeof setInterval> | null = null;
   onMessage: (connId: string, msg: Msg) => void = () => {};
   onJoin: (connId: string) => void = () => {};
   onLeave: (connId: string) => void = () => {};
@@ -61,14 +67,37 @@ export class HostNet {
   private accept(conn: DataConnection) {
     conn.on('open', () => {
       this.conns.set(conn.connectionId, conn);
+      this.seen.set(conn.connectionId, Date.now());
+      this.startBeat();
       this.onJoin(conn.connectionId);
     });
-    conn.on('data', (d) => this.onMessage(conn.connectionId, d as Msg));
-    const gone = () => {
-      if (this.conns.delete(conn.connectionId)) this.onLeave(conn.connectionId);
-    };
+    conn.on('data', (d) => {
+      this.seen.set(conn.connectionId, Date.now());
+      if ((d as Msg)?.t === 'ping') return;
+      this.onMessage(conn.connectionId, d as Msg);
+    });
+    const gone = () => this.drop(conn.connectionId);
     conn.on('close', gone);
     conn.on('error', gone);
+  }
+
+  private drop(connId: string) {
+    this.seen.delete(connId);
+    if (this.conns.delete(connId)) this.onLeave(connId);
+  }
+
+  /** Celular que fechou de repente não avisa que saiu: sem sinal de vida por 30 s, conta como saída. */
+  private startBeat() {
+    if (this.beat) return;
+    this.beat = setInterval(() => {
+      const now = Date.now();
+      for (const [id, c] of [...this.conns]) {
+        if (now - (this.seen.get(id) ?? now) > GONE_MS) {
+          try { c.close(); } catch { /* ok */ }
+          this.drop(id);
+        } else if (c.open) c.send({ t: 'ping' });
+      }
+    }, BEAT_MS);
   }
 
   send(connId: string, msg: Msg) {
@@ -82,16 +111,29 @@ export class HostNet {
 
   close() {
     this.broadcast({ t: 'closed' });
+    if (this.beat) clearInterval(this.beat);
+    this.beat = null;
     setTimeout(() => this.peer?.destroy(), 150);
     this.conns.clear();
+    this.seen.clear();
   }
 }
 
 export class GuestNet {
   peer: Peer | null = null;
   private conn: DataConnection | null = null;
+  private lastSeen = Date.now();
+  private beat: ReturnType<typeof setInterval> | null = null;
+  private closed = false;
   onMessage: (msg: Msg) => void = () => {};
   onClose: () => void = () => {};
+
+  private lost() {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.beat) clearInterval(this.beat);
+    this.onClose();
+  }
 
   join(code: string, prefix = ROOM_PREFIX): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -113,11 +155,21 @@ export class GuestNet {
           if (done) return;
           done = true;
           clearTimeout(timer);
+          this.lastSeen = Date.now();
+          // Sinal de vida para o anfitrião, e o anfitrião sumido por 30 s = sala caiu.
+          this.beat = setInterval(() => {
+            if (Date.now() - this.lastSeen > GONE_MS) { try { conn.close(); } catch { /* ok */ } this.lost(); return; }
+            if (conn.open) conn.send({ t: 'ping' });
+          }, BEAT_MS);
           resolve();
         });
-        conn.on('data', (d) => this.onMessage(d as Msg));
-        conn.on('close', () => this.onClose());
-        conn.on('error', () => this.onClose());
+        conn.on('data', (d) => {
+          this.lastSeen = Date.now();
+          if ((d as Msg)?.t === 'ping') return;
+          this.onMessage(d as Msg);
+        });
+        conn.on('close', () => this.lost());
+        conn.on('error', () => this.lost());
       });
     });
   }
@@ -127,6 +179,8 @@ export class GuestNet {
   }
 
   close() {
+    this.closed = true;
+    if (this.beat) clearInterval(this.beat);
     try { this.conn?.close(); } catch { /* ok */ }
     setTimeout(() => this.peer?.destroy(), 150);
   }
