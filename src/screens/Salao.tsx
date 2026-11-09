@@ -6,7 +6,7 @@ import { getWallet, onWalletChange } from '../game/character';
 import type { Player } from '../game/model';
 import { CoinPill, RedeemSheet } from './Wardrobe';
 
-export type Dest = 'imitacao' | 'imitacao-online' | 'imitacao-wifi' | 'blackjack' | 'duvido' | 'truco' | 'poker' | 'cartas-online' | 'cartas-wifi';
+export type Dest = 'imitacao' | 'imitacao-online' | 'imitacao-wifi' | 'blackjack' | 'duvido' | 'truco' | 'poker' | 'tranca' | 'cartas-online' | 'cartas-wifi';
 type Tab = 'offline' | 'online' | 'wifi';
 
 interface GameCard { dest: Dest; title: string; sub: string; art: string; tint: string; ready: boolean }
@@ -18,6 +18,7 @@ const GAMES: Record<Tab, GameCard[]> = {
     { dest: 'duvido', title: 'Duvido!', sub: 'Jogo do mentiroso: blefe e não estoure o balão', art: '🤥', tint: '#ff5d5d', ready: true },
     { dest: 'truco', title: 'Truco Paulista', sub: 'Com vira, 1x1 ou 2x2', art: '🃏', tint: '#ff8a3d', ready: true },
     { dest: 'poker', title: 'Poker', sub: "Texas Hold'em, até 6", art: '♠️', tint: '#7b5cff', ready: true },
+    { dest: 'tranca', title: 'Tranca', sub: 'Canastras, morto e 3 preto que tranca', art: '♣️', tint: '#2bb673', ready: true },
   ],
   online: [
     { dest: 'imitacao-online', title: 'Imitação online', sub: 'Cada um no próprio celular, sala com código', art: '🌐', tint: '#ff4f9a', ready: true },

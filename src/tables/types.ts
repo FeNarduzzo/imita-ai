@@ -3,7 +3,7 @@
 // controla bots e manda para cada jogador só o que ele pode ver.
 import type { Look } from '../game/character';
 
-export type GameId = 'blackjack' | 'duvido' | 'truco' | 'poker';
+export type GameId = 'blackjack' | 'duvido' | 'truco' | 'poker' | 'tranca';
 
 export interface SeatInfo {
   id: string;

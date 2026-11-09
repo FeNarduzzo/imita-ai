@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
 import { sfx, unlockAudio } from '../audio/engine';
 import { Card } from '../cards/Card';
-import { cardName, RANK_NAMES } from '../cards/cards';
+import { cardName, RANK_NAMES, type Card as CardT } from '../cards/cards';
 import { Character } from '../components/Character';
 import { Avatar, Logo, Seg, Toggle } from '../components/ui';
 import type { Look } from '../game/character';
@@ -11,6 +11,7 @@ import { handValue, type BjAction, type BjState } from '../tables/blackjack';
 import { DV_NAMES, type DvCard, type DvRank, type DvState } from '../tables/duvido';
 import { AVAILABLE, MODULES } from '../tables/modules';
 import { handName, potTotal, score7, type PkAction, type PkState } from '../tables/poker';
+import { hasCleanCanastra, isBlack3, isCanastra, isClean, isWild, teamOf as trTeamOf, TR_ORDER, type TrAction, type TrMeld, type TrState, type TrTeamScore } from '../tables/tranca';
 import { nextValue, RAISE_NAMES, TC_TARGET, teamOf, type TcCard, type TcState, type Team } from '../tables/truco';
 import type { GameId } from '../tables/types';
 import type { RoomSeat, Self, TableApi } from '../tables/useTable';
@@ -290,6 +291,7 @@ export function TableGame({ table, onQuit }: { table: TableApi; onQuit: () => vo
     case 'duvido': return <DuvidoTable table={table} onQuit={onQuit} />;
     case 'truco': return <TrucoTable table={table} onQuit={onQuit} />;
     case 'poker': return <PokerTable table={table} onQuit={onQuit} />;
+    case 'tranca': return <TrancaTable table={table} onQuit={onQuit} />;
     default: return <div className="screen center">Jogo em breve.</div>;
   }
 }
@@ -852,3 +854,214 @@ export function PokerTable({ table, onQuit }: { table: TableApi; onQuit: () => v
     </div>
   );
 }
+
+// ---------------------------------------------------------------- mesa da Tranca
+
+const RANK_LABEL: Partial<Record<string, string>> = { A: 'Ás', K: 'Rei', Q: 'Dama', J: 'Valete', B3: '3 pretos' };
+
+function MeldChip({ m, onClick, can }: { m: TrMeld; onClick?: () => void; can?: boolean }) {
+  const can7 = isCanastra(m);
+  const clean = isClean(m);
+  const face = m.cards.find((c) => !isWild(c)) || m.cards[0];
+  const Tag = onClick ? 'button' : 'div';
+  return (
+    <Tag className={`tr-meld ${can7 ? (clean ? 'limpa' : 'suja') : ''} ${can ? 'can' : ''}`} onClick={onClick} aria-label={`Jogo de ${RANK_LABEL[m.rank] || m.rank}: ${m.cards.length} cartas${can7 ? (clean ? ', canastra limpa' : ', canastra suja') : ''}`}>
+      <Card card={face} size={30} />
+      <span className="tr-meld-n">×{m.cards.length}</span>
+      {!clean && <span className="tr-meld-wild">2</span>}
+      {can7 && <span className="tr-meld-tag">{clean ? 'LIMPA' : 'SUJA'}</span>}
+      {can && <span className="tr-meld-plus">+</span>}
+    </Tag>
+  );
+}
+
+const sortHand = (cards: CardT[]) => [...cards].sort((a, b) => TR_ORDER.indexOf(a.r) - TR_ORDER.indexOf(b.r) || a.s.localeCompare(b.s));
+
+export function TrancaTable({ table, onQuit }: { table: TableApi; onQuit: () => void }) {
+  const r = table.room!;
+  const v = table.view as TrState | null;
+  const me = table.myId!;
+  const [sel, setSel] = useState<string[]>([]);
+  useEffect(() => { setSel([]); }, [v?.turn, v?.phase, v?.handNo]);
+  useEffect(() => {
+    if (!v?.banner) return;
+    const b = v.banner;
+    if (/bateu|LIMPA|venceu|venceram/.test(b)) sfx('win');
+    else if (/morto|3 vermelho/.test(b)) sfx('reveal');
+    else if (/trancado/.test(b)) sfx('tock');
+    else if (/pegou o lixo|canastra/.test(b)) sfx('go');
+    else sfx('pop');
+  }, [v?.banner]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!v) return <div className="screen center"><div className="spinner" /></div>;
+
+  const n = v.seats.length;
+  const us = trTeamOf(v, me);
+  const them = (1 - us) as 0 | 1;
+  const name = (id: string) => (id === me ? 'Você' : v.seats.find((s) => s.id === id)?.name || '?');
+  const label = (t: 0 | 1) => (n === 2 ? name(v.teams[t][0]) : t === us ? 'Nós' : 'Eles');
+  const hand = sortHand(v.hands[me] || []);
+  const myTurn = (v.phase === 'draw' || v.phase === 'play') && v.turn === me;
+  const picked = hand.filter((c) => sel.includes(c.id));
+  const top = v.pile[0] ?? null;
+  const locked = !!top && (isBlack3(top) || isWild(top));
+  const ownMelds = v.melds[us];
+  const sameMeld = top ? ownMelds.find((m) => m.rank === top.r) : undefined;
+  const pairForTop = top ? hand.filter((c) => !isWild(c) && c.r === top.r) : [];
+  const takeAction: TrAction | null = !top || locked ? null
+    : sameMeld ? { type: 'take', to: sameMeld.id }
+    : pairForTop.length >= 2 ? { type: 'take', with: (picked.length === 2 && picked.every((c) => c.r === top.r && !isWild(c)) ? picked : pairForTop).slice(0, 2).map((c) => c.id) }
+    : null;
+  const bank = v.seats.find((s) => s.id === me)?.bank ?? r.seats.find((s) => s.id === me)?.bank ?? 0;
+  const order = v.seats.map((s) => s.id);
+  const nextId = order[(order.indexOf(v.turn) + 1) % n];
+  const partner = n === 4 ? v.teams[us].find((x) => x !== me) : undefined;
+  const opponents = v.teams[them];
+  const mortoOk = (t: 0 | 1) => v.mortos[t] === null;
+  const toggle = (id: string) => { sfx('click'); setSel((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id])); };
+  const act = (a: TrAction) => { table.act(a); setSel([]); };
+
+  const teamBox = (t: 0 | 1) => (
+    <div className={`tc-team ${t === us ? 'us' : 'them'}`}>
+      <span className="caps">{label(t)}</span>
+      <b>{fmtPts(v.score[t])}</b>
+      <span className="small faint tr-team-info">
+        {v.red3[t] > 0 && <span title="3 vermelhos">🔴×{v.red3[t]} </span>}
+        {mortoOk(t) ? 'morto ✓' : `morto ${v.mortoCounts?.[t] ?? ''}`}
+      </span>
+    </div>
+  );
+
+  const seatChip = (id: string) => (
+    <div key={id} className={`tr-seat ${v.turn === id && (v.phase === 'draw' || v.phase === 'play') ? 'active' : ''}`}>
+      <Avatar p={v.seats.find((s) => s.id === id)!} size="s" />
+      <div className="tr-seat-txt">
+        <b className="seat-name">{r.leaderId === id ? '👑 ' : ''}{name(id)}</b>
+        <span className="small">🂠 {v.counts?.[id] ?? 0}{id === partner ? ' · parceiro' : ''}</span>
+      </div>
+    </div>
+  );
+
+  const detailRow = (k: keyof TrTeamScore, txt: string) => {
+    const d = v.lastHand!.detail;
+    const f = (x: number) => (x > 0 ? `+${x}` : String(x));
+    return <tr key={k}><td>{txt}</td><td>{f(d[us][k])}</td><td>{f(d[them][k])}</td></tr>;
+  };
+
+  let controls: React.ReactNode;
+  if (v.phase === 'over') {
+    const won = v.winnerTeam === us;
+    controls = (
+      <div className="stack" style={{ alignItems: 'center', gap: 8, textAlign: 'center' }}>
+        <div className="title-m">{won ? (n === 4 ? '🏆 Sua dupla venceu!' : '🏆 Você venceu!') : `🏆 ${label(them)} ${n === 4 ? 'venceram' : 'venceu'}`}</div>
+        <div className="small">{fmtPts(v.score[us])} × {fmtPts(v.score[them])}{v.pot > 0 ? (won ? ` · pote de 🪙 ${v.pot}${n === 4 ? ' dividido entre vocês' : ' é seu'}!` : ` · o pote de 🪙 ${v.pot} ficou com eles`) : ''}</div>
+        {table.isLeader ? <button className="btn big pink" onClick={() => table.command({ cmd: 'lobby' })}>Nova partida</button> : <div className="status">Esperando o líder 👑…</div>}
+      </div>
+    );
+  } else if (v.phase === 'handEnd' && v.lastHand) {
+    controls = (
+      <div className="tc-call">
+        <div className="tc-call-title">{v.lastHand.batida === null ? 'Fim da mão' : v.lastHand.batida === us ? (n === 4 ? 'Vocês bateram! 🎉' : 'Você bateu! 🎉') : `${label(them)} ${n === 4 ? 'bateram' : 'bateu'}`}</div>
+        <table className="tr-score-table">
+          <thead><tr><th /><th>{label(us)}</th><th>{label(them)}</th></tr></thead>
+          <tbody>
+            {detailRow('mesa', 'Cartas na mesa')}
+            {detailRow('canastras', 'Canastras')}
+            {detailRow('red3', '3 vermelhos')}
+            {detailRow('morto', 'Morto')}
+            {detailRow('batida', 'Batida')}
+            {detailRow('mao', 'Cartas na mão')}
+            {detailRow('total', 'Total da mão')}
+          </tbody>
+        </table>
+        <span className="small faint">Próxima mão já vem…</span>
+      </div>
+    );
+  } else {
+    const canMeld = myTurn && v.phase === 'play' && picked.length >= 3;
+    controls = (
+      <>
+        <div className="tr-hand" aria-label="Sua mão">
+          {hand.map((c) => (
+            <Card key={c.id} card={c} size={40} highlight={sel.includes(c.id)} className={`${c.id === v.drawn ? 'tr-new' : ''} ${isWild(c) ? 'tr-wild' : ''}`} onClick={() => toggle(c.id)} />
+          ))}
+          {!hand.length && <span className="small faint">Sem cartas.</span>}
+        </div>
+        {myTurn && v.phase === 'draw' && (
+          <div className="row">
+            <button className="btn cyan grow" onClick={() => act({ type: 'draw' })}>Comprar do monte</button>
+            <button className="btn pink grow" disabled={!takeAction} onClick={() => takeAction && act(takeAction)}>Pegar o lixo{v.pileCount ? ` (${v.pileCount})` : ''}</button>
+          </div>
+        )}
+        {myTurn && v.phase === 'play' && (
+          <div className="row">
+            <button className="btn lime grow" disabled={!canMeld} onClick={() => act({ type: 'meld', ids: sel })}>Baixar jogo{picked.length >= 3 ? ` (${picked.length})` : ''}</button>
+            <button className="btn red grow" disabled={picked.length !== 1} onClick={() => act({ type: 'discard', id: sel[0] })}>Descartar</button>
+          </div>
+        )}
+        {!myTurn && <div className="status">Vez de {name(v.turn)}{nextId && nextId !== v.turn ? ` · depois: ${nextId === me ? 'você' : name(nextId)}` : ''}</div>}
+        <div className="small faint" style={{ textAlign: 'center' }}>
+          {myTurn && v.phase === 'draw'
+            ? (locked ? 'Lixo trancado: compre do monte.' : top && !takeAction ? `Para pegar o lixo: 2 cartas ${RANK_LABEL[top.r] || top.r} na mão ou um jogo de ${RANK_LABEL[top.r] || top.r} na mesa.` : 'Compre do monte ou pegue o lixo inteiro.')
+            : myTurn ? 'Escolha cartas e baixe um jogo, toque num jogo seu para encaixar, e descarte 1 para passar a vez.'
+            : `Para bater: morto ${mortoOk(us) ? '✓' : '✗'} · canastra limpa ${hasCleanCanastra(v, us) ? '✓' : '✗'}`}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div className="screen table-screen tr-screen">
+      <div className="topbar">
+        <button className="icon-btn" aria-label="Sair da mesa" onClick={onQuit}>✕</button>
+        <span className="round-chip">♣️ Mão {v.handNo}{r.code ? ` · ${r.code}` : ''}</span>
+        <CoinPill coins={bank} />
+      </div>
+
+      <div className="tc-score" aria-label={`Placar: ${label(us)} ${v.score[us]}, ${label(them)} ${v.score[them]}`}>
+        {teamBox(us)}
+        <div className="tc-mid"><span className="tc-value">até {fmtPts(v.config.target)}</span></div>
+        {teamBox(them)}
+      </div>
+      <div className="tc-banner-line">{v.banner && <div className="dv-banner" key={`${v.handNo}-${v.banner}`}>{v.banner}</div>}</div>
+
+      <div className="tr-table">
+        <div className="tr-row">{opponents.map(seatChip)}</div>
+        <div className="tr-melds them" aria-label="Jogos deles">
+          {v.melds[them].length ? v.melds[them].map((m) => <MeldChip key={m.id} m={m} />) : <span className="small faint">{label(them)}: nenhum jogo ainda</span>}
+        </div>
+        <div className="tr-center">
+          <div className="tr-pile">
+            <Card hidden size={40} />
+            <span className="small">Monte {v.stockCount ?? 0}</span>
+          </div>
+          <div className={`tr-pile ${locked ? 'locked' : ''}`}>
+            {top ? <Card card={top} size={40} /> : <span className="pk-slot" style={{ width: 40, height: 57 }} />}
+            <span className="small">{locked ? '🔒 ' : ''}Lixo {v.pileCount ?? 0}</span>
+          </div>
+          <div className="tr-pile tr-mortos">
+            <span className="small faint">Mortos</span>
+            <span className="small">{label(us)}: {mortoOk(us) ? 'pego' : v.mortoCounts?.[us]}</span>
+            <span className="small">{label(them)}: {mortoOk(them) ? 'pego' : v.mortoCounts?.[them]}</span>
+          </div>
+        </div>
+        <div className="tr-melds us" aria-label="Seus jogos">
+          {ownMelds.length
+            ? ownMelds.map((m) => {
+              const can = myTurn && v.phase === 'play' && picked.length > 0 && m.rank !== 'B3';
+              return <MeldChip key={m.id} m={m} can={can} onClick={can ? () => act({ type: 'add', meld: m.id, ids: sel }) : undefined} />;
+            })
+            : <span className="small faint">{n === 4 ? 'Sua dupla' : 'Você'}: nenhum jogo ainda</span>}
+        </div>
+        {partner && <div className="tr-row">{seatChip(partner)}</div>}
+      </div>
+
+      <div className="bj-controls">
+        {controls}
+        {table.isLeader && v.phase !== 'over' && <button className="link-btn" style={{ alignSelf: 'center' }} onClick={() => table.command({ cmd: 'lobby' })}>⚙️ Voltar à sala para configurar</button>}
+        {table.toast && <div className="error">{table.toast}</div>}
+      </div>
+    </div>
+  );
+}
+
+const fmtPts = (n: number) => n.toLocaleString('pt-BR');

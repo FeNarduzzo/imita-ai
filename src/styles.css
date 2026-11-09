@@ -708,3 +708,34 @@ button.card.face:active { transform: translateY(-2px) scale(0.97); }
 .admin-made { padding: 10px 12px; border-radius: 12px; background: rgba(255, 210, 63, 0.12); border: 1px solid rgba(255, 210, 63, 0.5); }
 .mono { font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace; letter-spacing: 0.04em; user-select: text; -webkit-user-select: text; }
 select.auth-input { appearance: auto; }
+
+/* ---------------------------------------------------------------- Tranca */
+.tr-table { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 24px; background: radial-gradient(120% 90% at 50% 10%, #1f8a5c 0%, #136843 55%, #0b4a2f 100%); border: 6px solid #6b3a1f; box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.4); }
+.tr-row { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.tr-seat { display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; border-radius: 999px; background: rgba(0, 0, 0, 0.3); }
+.tr-seat.active { box-shadow: 0 0 0 2px var(--yellow), 0 0 14px rgba(255, 210, 63, 0.6); }
+.tr-seat-txt { display: flex; flex-direction: column; line-height: 1.15; }
+.tr-melds { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; min-height: 52px; align-items: center; padding: 4px; border-radius: 14px; }
+.tr-melds.us { background: rgba(158, 240, 26, 0.08); }
+.tr-melds.them { background: rgba(255, 107, 107, 0.08); }
+.tr-meld { position: relative; display: flex; align-items: center; gap: 3px; padding: 3px 7px 3px 3px; border-radius: 10px; background: rgba(0, 0, 0, 0.3); border: 2px solid transparent; color: inherit; font: inherit; }
+.tr-meld.limpa { border-color: var(--yellow); }
+.tr-meld.suja { border-color: rgba(255, 255, 255, 0.55); }
+.tr-meld.can { cursor: pointer; border-color: var(--lime); animation: pulse-border 1.2s ease-in-out infinite; }
+@keyframes pulse-border { 50% { box-shadow: 0 0 12px rgba(158, 240, 26, 0.7); } }
+.tr-meld-n { font-weight: 800; font-size: 13px; }
+.tr-meld-wild { font-size: 9px; font-weight: 800; padding: 0 4px; border-radius: 6px; background: rgba(255, 255, 255, 0.85); color: #1d1a22; }
+.tr-meld-tag { position: absolute; top: -8px; right: -4px; font-size: 8px; font-weight: 900; letter-spacing: 0.04em; padding: 1px 5px; border-radius: 999px; background: var(--yellow); color: #2a1458; }
+.tr-meld.suja .tr-meld-tag { background: #dcdcdc; }
+.tr-meld-plus { position: absolute; bottom: -7px; right: -6px; width: 16px; height: 16px; border-radius: 50%; background: var(--lime); color: #1d1a22; font-weight: 900; font-size: 12px; line-height: 16px; text-align: center; }
+.tr-center { display: flex; justify-content: center; align-items: center; gap: 18px; padding: 4px 0; }
+.tr-pile { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.tr-pile.locked .card { box-shadow: 0 0 0 3px #ff5d5d, 0 0 14px rgba(255, 93, 93, 0.7); }
+.tr-mortos { align-items: flex-start; gap: 1px; padding: 6px 10px; border-radius: 12px; background: rgba(0, 0, 0, 0.25); }
+.tr-hand { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; padding-top: 6px; }
+.tr-hand .card.tr-new { box-shadow: 0 0 0 2px var(--cyan), 0 3px 8px rgba(0, 0, 0, 0.45); }
+.tr-team-info { white-space: nowrap; }
+.tr-score-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tr-score-table th, .tr-score-table td { padding: 3px 6px; text-align: right; }
+.tr-score-table th:first-child, .tr-score-table td:first-child { text-align: left; color: var(--muted); }
+.tr-score-table tr:last-child td { font-weight: 800; border-top: 1px solid rgba(255, 255, 255, 0.2); }
