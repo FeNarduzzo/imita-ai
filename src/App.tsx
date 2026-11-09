@@ -9,6 +9,7 @@ import { loadSelfId } from './game/storage';
 import { rpc } from './net/supabase';
 import { AdminScreen } from './screens/Admin';
 import { AccountSheet, AuthScreen, BlockedScreen, WarningSheet } from './screens/Auth';
+import { Karaoke } from './screens/Karaoke';
 import { useGame } from './game/useGame';
 import { useOnline } from './online/useOnline';
 import { Home } from './screens/Home';
@@ -22,7 +23,7 @@ import { useTable } from './tables/useTable';
 import { AllDone, Create, Draw, Handoff, Listen, Record } from './screens/Turn';
 import { Wardrobe } from './screens/Wardrobe';
 
-type View = 'salao' | 'imitacao' | 'online-hub' | 'table-hub';
+type View = 'salao' | 'imitacao' | 'karaoke' | 'online-hub' | 'table-hub';
 
 /** Código de sala vindo de um link (…/#sala=ABCD). */
 function codeFromLink(): { kind: 'sala' | 'mesa'; code: string } | null {
@@ -108,6 +109,7 @@ export default function App() {
   const openDress = (p: Player, tab: 'closet' | 'shop' = 'closet') => setDress({ pid: p.id, tab });
   const openDest = (d: Dest) => {
     if (d === 'imitacao') setView('imitacao');
+    else if (d === 'karaoke') setView('karaoke');
     else if (d === 'imitacao-online') setView('online-hub');
     else if (d === 'cartas-online') setView('table-hub');
     // Qualquer jogo de mesa registrado em MODULES abre offline (novas mesas não precisam mexer aqui).
@@ -148,6 +150,9 @@ export default function App() {
   } else if (view === 'online-hub') {
     key = 'hub';
     screen = <OnlineHub self={self} online={online} initialCode={linkCode?.kind === 'sala' ? linkCode.code : ''} onDress={() => openDress(self)} onBack={() => { setView('salao'); online.setError(null); }} />;
+  } else if (view === 'karaoke') {
+    key = 'karaoke';
+    screen = <Karaoke players={api.players} self={self} onBack={() => setView('salao')} />;
   } else if (view === 'imitacao') {
     key = 'imitacao';
     screen = <Home api={api} onBack={() => setView('salao')} onDress={(p) => openDress(p)} />;

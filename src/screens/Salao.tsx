@@ -6,7 +6,7 @@ import { getWallet, onWalletChange } from '../game/character';
 import type { Player } from '../game/model';
 import { CoinPill, RedeemSheet } from './Wardrobe';
 
-export type Dest = 'imitacao' | 'imitacao-online' | 'imitacao-wifi' | 'blackjack' | 'duvido' | 'truco' | 'poker' | 'tranca' | 'cartas-online' | 'cartas-wifi';
+export type Dest = 'imitacao' | 'karaoke' | 'imitacao-online' | 'imitacao-wifi' | 'blackjack' | 'duvido' | 'truco' | 'poker' | 'tranca' | 'cartas-online' | 'cartas-wifi';
 type Tab = 'offline' | 'online' | 'wifi';
 
 interface GameCard { dest: Dest; title: string; sub: string; art: string; tint: string; ready: boolean }
@@ -14,6 +14,7 @@ interface GameCard { dest: Dest; title: string; sub: string; art: string; tint: 
 const GAMES: Record<Tab, GameCard[]> = {
   offline: [
     { dest: 'imitacao', title: 'Imitação', sub: 'Passa o celular: ouça, imite e ganhe nota', art: '🎤', tint: '#ff4f9a', ready: true },
+    { dest: 'karaoke', title: 'Karaokê', sub: 'Importe suas músicas e cante no palco', art: '🎶', tint: '#ffd23f', ready: true },
     { dest: 'blackjack', title: 'Blackjack', sub: 'Você contra o dealer, apostando moedas', art: '🂡', tint: '#2ec4b6', ready: true },
     { dest: 'duvido', title: 'Duvido!', sub: 'Jogo do mentiroso: blefe e não estoure o balão', art: '🤥', tint: '#ff5d5d', ready: true },
     { dest: 'truco', title: 'Truco Paulista', sub: 'Com vira, 1x1 ou 2x2', art: '🃏', tint: '#ff8a3d', ready: true },

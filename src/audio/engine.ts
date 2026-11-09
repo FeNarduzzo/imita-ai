@@ -187,6 +187,8 @@ export class Mic {
   /** Nível de cada bloco gravado (2048 amostras), para desenhar a voz no tempo certo. */
   chunkLevels: number[] = [];
   readonly chunkSize = 2048;
+  /** Último bloco que chegou do microfone (mesmo sem gravar): o karaokê lê o tom da voz daqui. */
+  latest: Float32Array | null = null;
 
   async open(echoCancellation = false) {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error('Este aparelho não dá acesso ao microfone.');
@@ -211,6 +213,7 @@ export class Mic {
         let s = 0;
         for (let i = 0; i < d.length; i++) s += d[i] * d[i];
         this.level = Math.sqrt(s / d.length) * this.gain;
+        this.latest = d.slice();
         if (this.recording) {
           this.chunkLevels.push(this.level);
           const copy = new Float32Array(d.length);
