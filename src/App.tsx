@@ -16,6 +16,8 @@ import { Ended, Lobby, OnlineGame, OnlineHub } from './screens/Online';
 import { Final, Reveal, RoundEnd, Wheel } from './screens/Results';
 import { Salao, type Dest } from './screens/Salao';
 import { TableGame, TableHub, TableLobby, toSelf } from './screens/Tables';
+import { MODULES } from './tables/modules';
+import type { GameId } from './tables/types';
 import { useTable } from './tables/useTable';
 import { AllDone, Create, Draw, Handoff, Listen, Record } from './screens/Turn';
 import { Wardrobe } from './screens/Wardrobe';
@@ -108,7 +110,8 @@ export default function App() {
     if (d === 'imitacao') setView('imitacao');
     else if (d === 'imitacao-online') setView('online-hub');
     else if (d === 'cartas-online') setView('table-hub');
-    else if (d === 'blackjack' || d === 'duvido' || d === 'truco' || d === 'poker') table.openOffline(d, toSelf(self));
+    // Qualquer jogo de mesa registrado em MODULES abre offline (novas mesas não precisam mexer aqui).
+    else if (d in MODULES) table.openOffline(d as GameId, toSelf(self));
   };
 
   let screen;
