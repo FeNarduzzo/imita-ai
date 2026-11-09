@@ -1,5 +1,24 @@
 # Novidades
 
+## 1.0 — lançamento (saiu do beta)
+
+- **Contas:** só entra no jogo quem fez login. Cadastro com nome de usuário e senha, idade mínima
+  de 12 anos e autorização do responsável de 12 a 17. Termos de Uso e Política de Privacidade na
+  tela de login. Em "Minha conta" dá para trocar a senha e excluir a conta.
+- **Salão:** tela inicial com abas Offline, Online e Wi-Fi e os jogos de cada uma.
+- **Personagem, loja e vestiário:** cada um monta o seu personagem com roupas casuais compradas
+  com moedas do jogo (moedas nunca são vendidas por dinheiro de verdade).
+- **Mesas de cartas** (offline com bots ou online com código e líder 👑 transferível):
+  Blackjack, Duvido! (o jogo do mentiroso, com balão), Truco Paulista com vira (1x1 ou 2x2) e
+  Poker Texas Hold'em (até 6). Tudo configurável pelo líder; dá para entrar no meio entre as
+  rodadas (menos no Truco). Apostas em jogo voltam para a carteira se a partida for interrompida.
+- **Níveis e XP por categoria** (Imitação, Karaokê, Cartas, Social), com títulos de 🐣 Noob a
+  🐐 Mito e moedas a cada nível.
+- **Moedas, compras e códigos no servidor:** cada código vale uma vez por conta; o que se ganha
+  sem internet é enviado quando a conexão volta.
+- **Menu de admin:** jogadores, dar/tirar moedas, XP e itens, punições (advertência, suspensão,
+  banimento e bloqueio de IP com prazo), nova senha, códigos promocionais e histórico.
+
 ## 1.4
 
 - **Modo online:** cada um joga no próprio celular. Toque em "Jogar online" na tela inicial.
