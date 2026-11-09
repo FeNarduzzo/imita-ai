@@ -193,7 +193,10 @@ export function randomLook(): Look {
 /** Peças exclusivas de título liberadas para este nível? */
 export const unlocked = (item: Item, level: number) => item.exclusive !== 'title' || level >= (item.minLevel ?? 0);
 /** Nível do jogador (provisório: a sessão de contas troca pelo nível do servidor). */
-export const playerLevel = (_pid: string): number => 1;
+/** Nível geral da conta logada (vem do servidor); os outros jogadores do aparelho ficam no 1. */
+let accountLevel = 1;
+export const setAccountLevel = (level: number) => { accountLevel = Math.max(1, Math.floor(level) || 1); };
+export const playerLevel = (pid: string): number => (isAccount(pid) ? accountLevel : 1);
 
 // ---------------------------------------------------------------- moedas e guarda-roupa
 

@@ -1,5 +1,19 @@
 # Novidades
 
+## 1.1
+
+- **Karaokê:** importe as suas músicas (elas ficam só no aparelho), separadas por estilo. O jogo
+  tira a voz, mostra a linha da melodia e a sua voz ao vivo, e dá a nota pela afinação. Letra
+  opcional (colada ou arquivo .lrc/.txt).
+- **Palco de música** nas partidas de imitação: cortinas, refletores, e quem está na vez no foco de luz.
+- **Placar ao vivo** com os nomes durante toda a partida.
+- **Imitação online:** líder 👑 transferível que escolhe as regras e comanda a partida; quem chega
+  no meio entra na próxima rodada.
+- **Nova mesa: Tranca** (1x1 ou 2x2). Nas mesas, prêmio por vitória e taxa de 5% nos potes.
+- **Loja nova:** joias, roupas novas, exclusivos de título (destravam pelo nível) e de código.
+- **Conexão:** quem fecha o app de repente sai da sala em ~30 s (antes ficava preso).
+  Salas da 1.0 e da 1.1 não se misturam: atualize o app para jogar online.
+
 ## 1.0 — lançamento (saiu do beta)
 
 - **Contas:** só entra no jogo quem fez login. Cadastro com nome de usuário e senha, idade mínima

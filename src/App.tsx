@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { sfx } from './audio/engine';
 import { useAuth } from './auth/useAuth';
 import { Confirm, Logo } from './components/ui';
-import { bindAccount, onWalletError, setAccountWallet } from './game/character';
+import { bindAccount, onWalletError, setAccountLevel, setAccountWallet } from './game/character';
 import type { Player } from './game/model';
 import { bindXp, onXp, type XpResult } from './game/progress';
 import { loadSelfId } from './game/storage';
@@ -72,8 +72,8 @@ export default function App() {
   }, [meId, self?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Quando o perfil volta do servidor (ex.: ao abrir "Minha conta"), o saldo da tela acompanha.
   useEffect(() => {
-    if (auth.me) setAccountWallet({ coins: auth.me.coins, owned: auth.me.items });
-  }, [auth.me?.coins, auth.me?.items.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (auth.me) { setAccountWallet({ coins: auth.me.coins, owned: auth.me.items }); setAccountLevel(auth.me.level); }
+  }, [auth.me?.coins, auth.me?.items.length, auth.me?.level]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Avisos rápidos: subiu de nível, compra recusada pelo servidor.
   const [notice, setNotice] = useState<string | null>(null);
