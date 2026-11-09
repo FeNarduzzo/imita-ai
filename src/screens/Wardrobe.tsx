@@ -3,13 +3,17 @@ import { sfx } from '../audio/engine';
 import { Character } from '../components/Character';
 import { Seg, Sheet } from '../components/ui';
 import {
-  buy, CATEGORIES, getWallet, itemsOf, lookValue, NONE_ALLOWED, onWalletChange, owns, randomLook, withItem,
+  buy, CATEGORIES, getWallet, itemsOf, lookValue, NONE_ALLOWED, onWalletChange, owns, playerLevel, randomLook, unlocked, withItem,
   type Category, type Item, type Look, type Wallet,
 } from '../game/character';
+import { titleFor, TITLES } from '../game/levels';
 import type { Player } from '../game/model';
 import { redeem } from '../game/promo';
 
-const BUST_CATS: Category[] = ['hair', 'hairColor', 'face', 'hat', 'acc', 'skin'];
+const BUST_CATS: Category[] = ['hair', 'hairColor', 'face', 'hat', 'acc', 'skin', 'jewel'];
+/** Peças que só aparecem no corpo inteiro (pulso, mão, capa). */
+const FULL_STYLES = ['watch', 'bracelet', 'cape', 'mic'];
+const titleAt = (level: number) => TITLES.find((t) => t.min === level) || titleFor(level);
 
 export function CoinPill({ coins }: { coins: number }) {
   return <span className="coin-pill" aria-label={`${coins} moedas`}>🪙 {coins}</span>;
@@ -26,11 +30,18 @@ export function Wardrobe({ player, onSave, onClose, initialTab = 'closet' }: { p
   const [trying, setTrying] = useState<Item | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
+  const level = playerLevel(player.id);
 
   const preview = trying ? withItem(look, trying, cat) : look;
   const current = lookValue(look, cat);
-  const items = useMemo(() => itemsOf(cat).filter((i) => (tab === 'closet' ? owns(wallet, i) : !owns(wallet, i))), [cat, tab, wallet]);
-  const toBuy = useMemo(() => CATEGORIES.reduce((n, c) => n + itemsOf(c.cat).filter((i) => !owns(wallet, i)).length, 0), [wallet]);
+  // Loja: peças de código só aparecem para quem já ganhou (no vestiário); as de título aparecem trancadas até o nível.
+  const items = useMemo(() => {
+    if (tab === 'closet') return itemsOf(cat).filter((i) => owns(wallet, i));
+    const list = itemsOf(cat).filter((i) => !owns(wallet, i) && i.exclusive !== 'code');
+    return [...list.filter((i) => unlocked(i, level)), ...list.filter((i) => !unlocked(i, level))];
+  }, [cat, tab, wallet, level]);
+  const toBuy = useMemo(() => CATEGORIES.reduce((n, c) => n + itemsOf(c.cat).filter((i) => !owns(wallet, i) && i.exclusive !== 'code' && unlocked(i, level)).length, 0), [wallet, level]);
+  const tryingLocked = !!trying && !unlocked(trying, level);
   const dirty = JSON.stringify(look) !== JSON.stringify(player.look);
 
   const pickItem = (it: Item | null) => {
@@ -41,7 +52,7 @@ export function Wardrobe({ player, onSave, onClose, initialTab = 'closet' }: { p
   };
 
   const doBuy = () => {
-    if (!trying) return;
+    if (!trying || tryingLocked) return;
     const w = buy(player.id, trying);
     if (!w) { sfx('bad'); setMsg('Moedas insuficientes.'); return; }
     sfx('win');
@@ -59,7 +70,7 @@ export function Wardrobe({ player, onSave, onClose, initialTab = 'closet' }: { p
     };
     let l = look;
     for (const c of ['skin', 'hair', 'hairColor', 'face', 'top', 'bottom', 'shoes'] as Category[]) l = withItem(l, pick(c), c);
-    for (const c of ['hat', 'acc'] as Category[]) l = withItem(l, Math.random() < 0.5 ? pick(c) ?? null : null, c);
+    for (const c of ['hat', 'acc', 'jewel'] as Category[]) l = withItem(l, Math.random() < 0.5 ? pick(c) ?? null : null, c);
     setLook(l);
   };
 
@@ -98,15 +109,21 @@ export function Wardrobe({ player, onSave, onClose, initialTab = 'closet' }: { p
         {items.map((it) => {
           const on = tab === 'closet' ? current === it.id : trying?.id === it.id;
           const l = withItem(look, it, cat);
+          const locked = tab === 'shop' && !unlocked(it, level);
+          const t = it.exclusive === 'title' ? titleAt(it.minLevel ?? 1) : null;
           return (
-            <button key={it.id} className={`item ${on ? 'on' : ''}`} onClick={() => pickItem(it)}>
+            <button key={it.id} className={`item ${on ? 'on' : ''} ${locked ? 'locked' : ''} ${it.exclusive ? 'exclusive' : ''}`} onClick={() => pickItem(it)}
+              aria-label={`${it.name}${it.exclusive === 'code' ? ', exclusivo de código' : t ? `, exclusivo ${t.name}` : ''}${locked ? `, libera no nível ${it.minLevel}` : ''}`}>
+              {it.exclusive && <span className="excl" title={it.exclusive === 'code' ? 'Exclusivo de código' : `Exclusivo ${t?.name}`}>{it.exclusive === 'code' ? '🎁' : t?.emoji}</span>}
               <div className="item-art">
                 {cat === 'hairColor' || cat === 'skin'
                   ? <span className="swatch" style={{ background: it.c1 }} />
-                  : <Character look={l} view={BUST_CATS.includes(cat) ? 'bust' : 'full'} />}
+                  : <Character look={l} view={BUST_CATS.includes(cat) && !FULL_STYLES.includes(it.style) ? 'bust' : 'full'} />}
               </div>
               <span>{it.name}</span>
-              {tab === 'shop' && <span className="price">🪙 {it.price}</span>}
+              {tab === 'shop' && (locked
+                ? <span className="price lock">🔒 Nível {it.minLevel} · {t?.name}</span>
+                : <span className="price">🪙 {it.price}</span>)}
             </button>
           );
         })}
@@ -115,7 +132,9 @@ export function Wardrobe({ player, onSave, onClose, initialTab = 'closet' }: { p
 
       {msg && <div className="small" style={{ textAlign: 'center', color: 'var(--lime)' }}>{msg}</div>}
       <div className="footer">
-        {tab === 'shop' && trying ? (
+        {tab === 'shop' && trying && tryingLocked ? (
+          <button className="btn big" disabled>🔒 Libera no nível {trying.minLevel} ({titleAt(trying.minLevel ?? 1).emoji} {titleAt(trying.minLevel ?? 1).name})</button>
+        ) : tab === 'shop' && trying ? (
           <button className="btn big pink" disabled={wallet.coins < trying.price} onClick={doBuy}>
             {wallet.coins >= trying.price ? `Comprar ${trying.name} · 🪙 ${trying.price}` : `Faltam 🪙 ${trying.price - wallet.coins}`}
           </button>
