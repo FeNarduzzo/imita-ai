@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Mic, play, sfx, toBuffer, vibrate, type Playing } from '../audio/engine';
 import type { LoadedSound, SoundInfo } from '../audio/library';
 import { activeLoudnessDb, louden, peakLevel, trimSilence } from '../audio/util';
+import { Character, type Pose } from '../components/Character';
 import { Avatar, Ring, usePlayer } from '../components/ui';
 import { envelopeOf, Waveform } from '../components/Waveform';
 
@@ -13,6 +14,7 @@ import type { GameApi } from '../game/useGame';
 export function TopBar({ g, onQuit, label }: { g: GameState; onQuit: () => void; label?: string }) {
   return (
     <>
+      <StageDeco />
       <div className="topbar">
         <button className="icon-btn" aria-label="Sair da partida" onClick={onQuit}>✕</button>
         <span className="round-chip">{label ?? `Rodada ${g.round.index + 1} de ${g.plan.length}`}</span>
@@ -20,6 +22,31 @@ export function TopBar({ g, onQuit, label }: { g: GameState; onQuit: () => void;
       </div>
       <LiveScore g={g} />
     </>
+  );
+}
+
+/** Cenário de palco atrás da partida: cortinas, bambinela, refletores e chão iluminado. */
+export function StageDeco() {
+  return (
+    <div className="stage-deco" aria-hidden>
+      <div className="beam l" />
+      <div className="beam r" />
+      <div className="floor" />
+      <div className="curtain l" />
+      <div className="curtain r" />
+      <div className="valance" />
+    </div>
+  );
+}
+
+/** Quem está se apresentando, de corpo inteiro, no foco de luz da cor dele. `lvl` (0..1) faz dançar com a voz. */
+export function StageStar({ p, pose = 'idle', lvl = 0, size = 'l' }: { p: Player; pose?: Pose; lvl?: number; size?: 'm' | 'l' }) {
+  return (
+    <div className={`stage-star ${size}`} style={{ ['--c' as string]: p.color, ['--lvl' as string]: lvl }}>
+      <div className="stage-char">
+        {p.look ? <Character look={p.look} pose={pose} title={p.name} /> : <Avatar p={p} size="xl" />}
+      </div>
+    </div>
   );
 }
 
@@ -146,7 +173,7 @@ export function Handoff({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit
       <TopBar g={g} onQuit={onQuit} label={`Vez ${r.turn + 1} de ${r.order.length}`} />
       <div className="grow stack" style={{ justifyContent: 'center', alignItems: 'center', textAlign: 'center', gap: 18 }}>
         <div className="caps">Passe o celular para</div>
-        <div className="bob"><Avatar p={p} size="xl" /></div>
+        <div className="bob"><StageStar p={p} pose="cheer" /></div>
         <div className="name">{p.name}</div>
         <div className="row wrap" style={{ justifyContent: 'center' }}>
           {g.settings.mode === 'teams' && <span className="badge" style={{ color: TEAMS[p.team].color }}>{TEAMS[p.team].emoji} {TEAMS[p.team].name}</span>}
@@ -363,7 +390,7 @@ export function Record({ api, g, onQuit }: { api: GameApi; g: GameState; onQuit:
           </>
         ) : (
           <>
-            <div className="mic-orb" style={{ ['--lvl' as string]: lvl }}>🎙️</div>
+            <StageStar p={p} pose={stage === 'rec' ? 'sing' : 'idle'} lvl={stage === 'rec' ? lvl : 0} size="m" />
             <div className="row" style={{ gap: 8 }}>
               {stage === 'rec' ? <><span className="rec-dot" /><b>Gravando… imite agora!</b></> : <span className="muted">{stage === 'open' ? 'Abrindo o microfone…' : 'Pronto!'}</span>}
             </div>

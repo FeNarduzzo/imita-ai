@@ -2,7 +2,7 @@
 import { Character, type Pose } from '../components/Character';
 import { ITEMS, randomLook, type Look } from '../game/character';
 import { COLORS, type GameState } from '../game/model';
-import { LiveScore } from '../screens/Turn';
+import { LiveScore, StageStar, TopBar } from '../screens/Turn';
 
 const ids = (cat: string) => ITEMS.filter((i) => i.cat === cat).map((i) => i.id);
 
@@ -20,7 +20,29 @@ function demoGame(teams: boolean): GameState {
   } as unknown as GameState;
 }
 
+/** Prévia do palco (abra com ?galeria&palco): como fica a vez de alguém, sem precisar de microfone. */
+function StageDemo() {
+  const g = demoGame(false);
+  const p = g.players[2];
+  return (
+    <div className="screen handoff" style={{ ['--c' as string]: p.color }}>
+      <TopBar g={g} onQuit={() => {}} label="Vez 3 de 6" />
+      <div className="grow stack" style={{ justifyContent: 'center', alignItems: 'center', textAlign: 'center', gap: 18 }}>
+        <div className="caps">Passe o celular para</div>
+        <div className="bob"><StageStar p={p} pose="cheer" /></div>
+        <div className="name">{p.name}</div>
+        <div className="row" style={{ gap: 18 }}>
+          <StageStar p={g.players[1]} pose="sing" lvl={0.8} size="m" />
+          <StageStar p={g.players[5]} pose="idle" size="m" />
+        </div>
+      </div>
+      <button className="btn big pink">Sou eu! 🎤</button>
+    </div>
+  );
+}
+
 export function Gallery() {
+  if (location.search.includes('palco')) return <StageDemo />;
   const tops = ids('top');
   const looks: { look: Look; pose: Pose }[] = tops.map((top, i) => {
     const base = randomLook();

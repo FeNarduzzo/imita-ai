@@ -757,3 +757,54 @@ select.auth-input { appearance: auto; }
 .ls-move { font-size: 10px; line-height: 1; }
 .ls-move.up { color: var(--lime); }
 .ls-move.down { color: #ff8a8a; }
+
+/* ---------------------------------------------------------------- palco (cenário das partidas) */
+.stage-deco { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
+.stage-deco .beam {
+  position: absolute; top: -12%; width: 52%; height: 118%;
+  background: linear-gradient(180deg, rgba(255, 236, 190, 0.17), rgba(255, 236, 190, 0.05) 55%, transparent 85%);
+  clip-path: polygon(44% 0, 56% 0, 100% 100%, 0 100%); transform-origin: 50% 0; filter: blur(2px);
+}
+.stage-deco .beam.l { left: -4%; animation: beam-l 9s ease-in-out infinite alternate; }
+.stage-deco .beam.r { right: -4%; animation: beam-r 11s ease-in-out infinite alternate; background: linear-gradient(180deg, rgba(255, 120, 200, 0.14), rgba(255, 120, 200, 0.04) 55%, transparent 85%); }
+@keyframes beam-l { from { transform: rotate(-22deg); } to { transform: rotate(6deg); } }
+@keyframes beam-r { from { transform: rotate(20deg); } to { transform: rotate(-8deg); } }
+.stage-deco .floor {
+  position: absolute; left: -15%; right: -15%; bottom: -6%; height: 26%;
+  border-radius: 50% 50% 0 0 / 18% 18% 0 0; border-top: 2px solid rgba(255, 210, 63, 0.28);
+  background:
+    radial-gradient(ellipse 45% 40% at 50% 8%, rgba(255, 210, 63, 0.16), transparent 70%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 38px, transparent 38px 76px),
+    linear-gradient(180deg, #2b1453, #140829);
+}
+.stage-deco .curtain {
+  position: absolute; top: 0; bottom: 0; width: clamp(14px, 4.5vw, 46px);
+  background: repeating-linear-gradient(90deg, #5e0c26 0 6px, #9c1c42 6px 11px, #7a1232 11px 15px, #4c081e 15px 18px);
+  box-shadow: inset -6px 0 14px rgba(0, 0, 0, 0.5), 4px 0 18px rgba(0, 0, 0, 0.35);
+}
+.stage-deco .curtain.l { left: 0; border-bottom-right-radius: 100% 9%; }
+.stage-deco .curtain.r { right: 0; transform: scaleX(-1); border-bottom-right-radius: 100% 9%; }
+.stage-deco .valance {
+  position: absolute; top: 0; left: 0; right: 0; height: calc(18px + var(--safe-top));
+  background:
+    radial-gradient(circle at 50% 100%, transparent 9px, #8d1739 10px) 0 0 / 26px 100%,
+    linear-gradient(#a3204a, #6d0f2a);
+  border-bottom: 2px solid rgba(232, 184, 74, 0.55); opacity: 0.9;
+}
+
+/* quem está se apresentando, no foco de luz */
+.stage-star { position: relative; display: flex; align-items: flex-end; justify-content: center; width: 200px; height: 220px; }
+.stage-star.m { width: 160px; height: 176px; }
+.stage-star::before {
+  content: ''; position: absolute; inset: -46px 6px 8px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 55%, transparent), color-mix(in srgb, var(--c) 8%, transparent) 75%, transparent);
+  clip-path: polygon(41% 0, 59% 0, 100% 100%, 0 100%); opacity: calc(0.45 + var(--lvl, 0) * 0.5); filter: blur(1px);
+}
+.stage-star::after {
+  content: ''; position: absolute; bottom: 0; left: 12%; right: 12%; height: 24px; border-radius: 50%;
+  background: radial-gradient(ellipse, color-mix(in srgb, var(--c) 70%, transparent), transparent 70%);
+  opacity: calc(0.6 + var(--lvl, 0) * 0.4);
+}
+.stage-char { position: relative; z-index: 1; width: 78%; transform-origin: 50% 100%; transform: scale(calc(1 + var(--lvl, 0) * 0.09)) rotate(calc(var(--lvl, 0) * -4deg)); transition: transform 0.08s linear; }
+.stage-char svg { display: block; width: 100%; height: auto; }
+.stage-char .avatar { margin: 0 auto 18px; }

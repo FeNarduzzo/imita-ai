@@ -7,7 +7,7 @@ import { Avatar, Confetti, PitchChart, Ring, useCountUp, usePlayer } from '../co
 import { envelopeOf, Waveform } from '../components/Waveform';
 import { EFFECT_NAMES, ratingLabel, SLOTS, TEAMS, type GameState, type Player, type Slot } from '../game/model';
 import type { GameApi } from '../game/useGame';
-import { TopBar } from './Turn';
+import { StageStar, TopBar } from './Turn';
 
 const byId = (g: GameState, id: string) => g.players.find((p) => p.id === id) as Player;
 
@@ -108,6 +108,7 @@ export function Reveal({ api, g, onQuit, online }: { api: GameApi; g: GameState;
       <div key={`b-${pid}`} className="grow stack" style={{ alignItems: 'center', justifyContent: 'center', gap: 14, textAlign: 'center', animation: 'enter .35s both' }}>
         {!showScore ? (
           <>
+            <StageStar p={p} pose={player.playing ? 'sing' : 'idle'} size="m" />
             {takeEnv && <Waveform env={takeEnv} progress={player.playing ? player.progress : 1} cursor={player.playing} height={120} label={`Imitação de ${p.name}`} />}
             <b>{player.playing ? 'Tocando a imitação…' : 'Calculando…'}</b>
             <button className="btn ghost sm" onClick={() => { player.stop(); setShowScore(true); }}>Pular</button>
