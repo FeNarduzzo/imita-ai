@@ -12,10 +12,56 @@ import type { GameApi } from '../game/useGame';
 
 export function TopBar({ g, onQuit, label }: { g: GameState; onQuit: () => void; label?: string }) {
   return (
-    <div className="topbar">
-      <button className="icon-btn" aria-label="Sair da partida" onClick={onQuit}>✕</button>
-      <span className="round-chip">{label ?? `Rodada ${g.round.index + 1} de ${g.plan.length}`}</span>
-      <span style={{ width: 44 }} />
+    <>
+      <div className="topbar">
+        <button className="icon-btn" aria-label="Sair da partida" onClick={onQuit}>✕</button>
+        <span className="round-chip">{label ?? `Rodada ${g.round.index + 1} de ${g.plan.length}`}</span>
+        <span style={{ width: 44 }} />
+      </div>
+      <LiveScore g={g} />
+    </>
+  );
+}
+
+/** Placar ao vivo: todo mundo com nome e pontos, em ordem, durante a partida inteira. */
+export function LiveScore({ g }: { g: GameState }) {
+  const box = useRef<HTMLDivElement>(null);
+  const current = g.round.order?.[g.round.turn];
+  const last = g.history[g.history.length - 1];
+  const total = (id: string) => g.totals[id] || 0;
+  const byScore = (score: (id: string) => number) => [...g.players].sort((a, b) => score(b.id) - score(a.id));
+  const now = byScore(total);
+  // Posição antes da última rodada, para mostrar quem subiu ou desceu.
+  const before = last ? byScore((id) => total(id) - (last.points[id] || 0)) : now;
+  const anyPoints = g.players.some((p) => total(p.id) > 0);
+  useEffect(() => {
+    // Só rola se a pessoa da vez estiver fora da tela (os primeiros colocados ficam visíveis).
+    box.current?.querySelector('.ls-chip.now')?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+  }, [current]);
+  if (g.players.length < 2) return null;
+  return (
+    <div className="live-score-wrap">
+      {g.settings.mode === 'teams' && (
+        <div className="ls-teams" aria-label={`${TEAMS[0].name} ${g.teamTotals[0]}, ${TEAMS[1].name} ${g.teamTotals[1]}`}>
+          {TEAMS[0].emoji} {g.teamTotals[0]} <span className="faint">×</span> {g.teamTotals[1]} {TEAMS[1].emoji}
+        </div>
+      )}
+    <div className="live-score" ref={box} role="list" aria-label="Placar ao vivo">
+      {now.map((p, i) => {
+        const moved = before.findIndex((x) => x.id === p.id) - i;
+        return (
+          <div key={p.id} role="listitem" className={`ls-chip ${p.id === current ? 'now' : ''}`} style={{ ['--c' as string]: p.color }}
+            aria-label={`${i + 1}º lugar: ${p.name}, ${total(p.id)} pontos${p.id === current ? ', é a vez dele' : ''}`}>
+            <span className="ls-pos">{i === 0 && anyPoints ? '👑' : `${i + 1}º`}</span>
+            <Avatar p={p} size="s" />
+            <span className="ls-name">{p.name}</span>
+            <b className="ls-pts">{total(p.id)}</b>
+            {moved > 0 && <span className="ls-move up" aria-hidden>▲</span>}
+            {moved < 0 && <span className="ls-move down" aria-hidden>▼</span>}
+          </div>
+        );
+      })}
+    </div>
     </div>
   );
 }
